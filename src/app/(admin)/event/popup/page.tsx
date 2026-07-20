@@ -1,49 +1,269 @@
 'use client'
 
-import { useState } from 'react'
+import { FormEvent, Fragment, useEffect, useMemo, useState } from 'react'
+import {
+  cancelAdminPopup,
+  createAdminPopup,
+  getAdminPopup,
+  getAdminPopups,
+  updateAdminPopup,
+  type AdminPopup,
+  type AdminPopupPayload,
+  type PopupContentTargetType,
+  type PopupExposurePolicy,
+  type PopupStatus,
+} from '@/lib/api/popup.api'
+
+type FormState = {
+  targetId: string
+  contentTargetType: PopupContentTargetType
+  exposurePolicy: PopupExposurePolicy
+  popupTitle: string
+  content: string
+  ctaText: string
+  displayStartAt: string
+  displayEndAt: string
+  file: File | null
+}
+
+const emptyForm: FormState = {
+  targetId: '',
+  contentTargetType: 'APP_EVENT',
+  exposurePolicy: 'ALWAYS_DURING_PERIOD',
+  popupTitle: '',
+  content: '',
+  ctaText: '',
+  displayStartAt: '',
+  displayEndAt: '',
+  file: null,
+}
+
+const statusLabels: Record<PopupStatus, string> = {
+  SCHEDULED: '예약',
+  ACTIVE: '노출중',
+  ENDED: '종료',
+  CANCELED: '강제 종료',
+}
+
+const targetTypeLabels: Record<PopupContentTargetType, string> = {
+  APP_EVENT: '앱 이벤트',
+}
+
+const exposurePolicyLabels: Record<PopupExposurePolicy, string> = {
+  ALWAYS_DURING_PERIOD: '기간 내 항상 노출',
+}
 
 export default function PopupPage() {
-  const [filter, setFilter] = useState('ALL')
+  const [popups, setPopups] = useState<AdminPopup[]>([])
+  const [selectedPopup, setSelectedPopup] = useState<AdminPopup | null>(null)
+  const [searchQuery, setSearchQuery] = useState('')
+  const [currentPage, setCurrentPage] = useState(0)
+  const [totalPages, setTotalPages] = useState(0)
+  const [totalElements, setTotalElements] = useState(0)
+  const [loading, setLoading] = useState(false)
+  const [detailLoading, setDetailLoading] = useState(false)
+  const [saving, setSaving] = useState(false)
+  const [errorMessage, setErrorMessage] = useState('')
+  const [modalMode, setModalMode] = useState<'create' | 'edit' | null>(null)
+  const [form, setForm] = useState<FormState>(emptyForm)
 
-  // Mock data
-  const events = [
-    { id: 'APP_EVT_0001', name: '출석 체크 이벤트' },
-    { id: 'APP_EVT_0003', name: '여름 시즌 추첨 이벤트' },
-  ]
+  const filteredPopups = useMemo(
+    () =>
+      popups.filter(
+        (popup) =>
+          !searchQuery ||
+          popup.popupTitle.toLowerCase().includes(searchQuery.toLowerCase()) ||
+          popup.content.toLowerCase().includes(searchQuery.toLowerCase()) ||
+          String(popup.id).includes(searchQuery) ||
+          String(popup.targetId).includes(searchQuery),
+      ),
+    [popups, searchQuery],
+  )
 
-  const popups = [
-    {
-      id: 'POPUP_0001',
-      name: '출석 체크 안내 팝업',
-      appEventId: 'APP_EVT_0001',
-      hideToday: true,
-      status: '노출중',
-    },
-    {
-      id: 'POPUP_0002',
-      name: '여름 추첨 티저 팝업',
-      appEventId: 'APP_EVT_0003',
-      hideToday: true,
-      status: '대기',
-    },
-  ]
+  const fetchPopups = async (page = currentPage) => {
+    setLoading(true)
+    setErrorMessage('')
+    try {
+      const response = await getAdminPopups(page)
+      if (response.isSuccess) {
+        setPopups(response.result.content)
+        setCurrentPage(response.result.page)
+        setTotalPages(response.result.totalPages)
+        setTotalElements(response.result.totalElements)
+      }
+    } catch {
+      setErrorMessage('팝업 목록을 불러오지 못했습니다.')
+    } finally {
+      setLoading(false)
+    }
+  }
 
-  const filteredPopups = filter === 'ALL' ? popups : popups.filter((p) => p.appEventId === filter)
+  useEffect(() => {
+    void fetchPopups(currentPage)
+  }, [currentPage])
 
-  const statusClass = (s: string) => ({ '노출중': 'g', '대기': 'a', '종료': 'n' }[s] || 'n')
+  const handleSelectPopup = async (popupId: number) => {
+    if (selectedPopup?.id === popupId) {
+      setSelectedPopup(null)
+      return
+    }
 
-  const getEventName = (id: string) => events.find((e) => e.id === id)?.name || '(삭제됨)'
+    setDetailLoading(true)
+    setErrorMessage('')
+    try {
+      const response = await getAdminPopup(popupId)
+      if (response.isSuccess) {
+        setSelectedPopup(response.result)
+      }
+    } catch {
+      setErrorMessage('팝업 상세를 불러오지 못했습니다.')
+    } finally {
+      setDetailLoading(false)
+    }
+  }
 
-  const thumbColor = (id: string) => {
-    const colors = [
-      ['#EC1E79', '#B60E5A'],
-      ['#3457C4', '#22368A'],
-      ['#0E9F6E', '#0A7A54'],
-    ]
-    let h = 0
-    for (const c of id) h = (h * 31 + c.charCodeAt(0)) >>> 0
-    const [a, b] = colors[h % colors.length]
-    return `linear-gradient(135deg,${a},${b})`
+  const openCreateModal = () => {
+    setForm(emptyForm)
+    setModalMode('create')
+  }
+
+  const openEditModal = async (popupId: number) => {
+    const detail =
+      selectedPopup?.id === popupId
+        ? selectedPopup
+        : (await getAdminPopup(popupId)).result
+
+    setSelectedPopup(detail)
+    setForm({
+      targetId: String(detail.targetId),
+      contentTargetType: detail.contentTargetType,
+      exposurePolicy: detail.exposurePolicy,
+      popupTitle: detail.popupTitle,
+      content: detail.content,
+      ctaText: detail.ctaText,
+      displayStartAt: toDatetimeLocalValue(detail.displayStartAt),
+      displayEndAt: toDatetimeLocalValue(detail.displayEndAt),
+      file: null,
+    })
+    setModalMode('edit')
+  }
+
+  const closeModal = () => {
+    if (saving) return
+    setModalMode(null)
+    setForm(emptyForm)
+  }
+
+  const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault()
+
+    if (
+      !form.targetId.trim() ||
+      !form.popupTitle.trim() ||
+      !form.content.trim() ||
+      !form.ctaText.trim() ||
+      !form.displayStartAt ||
+      !form.displayEndAt
+    ) {
+      alert('타겟 ID, 제목, 내용, CTA, 노출 기간을 모두 입력해주세요.')
+      return
+    }
+
+    if (modalMode === 'create' && !form.file) {
+      alert('팝업 이미지를 선택해주세요.')
+      return
+    }
+
+    const payload: AdminPopupPayload = {
+      targetId: Number(form.targetId),
+      contentTargetType: form.contentTargetType,
+      exposurePolicy: form.exposurePolicy,
+      popupTitle: form.popupTitle.trim(),
+      content: form.content.trim(),
+      ctaText: form.ctaText.trim(),
+      displayStartAt: toIsoString(form.displayStartAt),
+      displayEndAt: toIsoString(form.displayEndAt),
+    }
+
+    setSaving(true)
+    try {
+      if (modalMode === 'edit' && selectedPopup) {
+        const response = await updateAdminPopup(selectedPopup.id, payload, form.file)
+        if (response.isSuccess) {
+          setSelectedPopup(response.result)
+        }
+      } else if (form.file) {
+        const response = await createAdminPopup(payload, form.file)
+        if (response.isSuccess) {
+          setSelectedPopup(response.result)
+          setCurrentPage(0)
+        }
+      }
+
+      setModalMode(null)
+      setForm(emptyForm)
+      await fetchPopups(modalMode === 'create' ? 0 : currentPage)
+    } catch {
+      alert(modalMode === 'edit' ? '팝업 수정에 실패했습니다.' : '팝업 생성에 실패했습니다.')
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  const handleCancelPopup = async (popup: AdminPopup) => {
+    const confirmed = window.confirm(`'${popup.popupTitle}' 팝업을 강제 종료할까요?`)
+    if (!confirmed) return
+
+    try {
+      const response = await cancelAdminPopup(popup.id)
+      if (response.isSuccess) {
+        setSelectedPopup(response.result)
+        await fetchPopups(currentPage)
+      }
+    } catch {
+      alert('팝업 강제 종료에 실패했습니다.')
+    }
+  }
+
+  const renderPagination = () => {
+    if (totalPages <= 1) return null
+
+    return (
+      <div className="pagination">
+        <button
+          className="pagination-button"
+          onClick={() => setCurrentPage((page) => Math.max(0, page - 1))}
+          disabled={currentPage === 0}
+          type="button"
+        >
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <path d="m15 18-6-6 6-6" />
+          </svg>
+        </button>
+
+        {Array.from({ length: totalPages }).map((_, index) => (
+          <button
+            key={index}
+            className={`pagination-button ${currentPage === index ? 'active' : ''}`}
+            onClick={() => setCurrentPage(index)}
+            type="button"
+          >
+            {index + 1}
+          </button>
+        ))}
+
+        <button
+          className="pagination-button"
+          onClick={() => setCurrentPage((page) => Math.min(totalPages - 1, page + 1))}
+          disabled={currentPage >= totalPages - 1}
+          type="button"
+        >
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <path d="m9 18 6-6-6-6" />
+          </svg>
+        </button>
+      </div>
+    )
   }
 
   return (
@@ -52,109 +272,312 @@ export default function PopupPage() {
         <div>
           <h1>팝업 관리</h1>
           <p className="page-sub">
-            앱 진입 시 노출되는 팝업입니다. 이미지는 AWS S3(public/event/{'{appEventId}'}/popup)에 저장되며, 각 팝업이 연결된 appEventId를 확인할 수 있습니다.
+            앱 진입 시 노출되는 이벤트 팝업을 생성하고 노출 기간과 이미지를 관리합니다.
           </p>
         </div>
+        <button className="btn-primary" onClick={openCreateModal} type="button">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round">
+            <path d="M5 12h14M12 5v14" />
+          </svg>
+          새 팝업 만들기
+        </button>
       </div>
 
       <div className="toolbar">
-        <div className="select-wrap">
-          <select value={filter} onChange={(e) => setFilter(e.target.value)}>
-            <option value="ALL">전체 이벤트</option>
-            {events.map((e) => (
-              <option key={e.id} value={e.id}>
-                {e.id} · {e.name}
-              </option>
-            ))}
-          </select>
+        <div className="search-box">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <circle cx="11" cy="11" r="7" />
+            <path d="m21 21-4.3-4.3" />
+          </svg>
+          <input
+            type="text"
+            placeholder="팝업명 · 내용 · ID 검색"
+            value={searchQuery}
+            onChange={(event) => setSearchQuery(event.target.value)}
+          />
         </div>
-        {filter === 'ALL' ? (
-          <span className="filter-note">전체 {filteredPopups.length}건</span>
-        ) : (
-          <span className="filter-note">
-            <b>{filter}</b> 에 연결된 {filteredPopups.length}건
-          </span>
-        )}
+        <span className="filter-note">전체 {searchQuery ? filteredPopups.length : totalElements}건</span>
       </div>
 
-      {filteredPopups.length > 0 ? (
-        <div className="event-table-panel">
-          <table className="event-table">
-            <thead>
+      {errorMessage ? <p className="login-message">{errorMessage}</p> : null}
+
+      <div className="event-table-panel">
+        <table className="event-table">
+          <thead>
+            <tr>
+              <th>Popup ID</th>
+              <th>팝업 · 이미지</th>
+              <th>연결 대상</th>
+              <th>노출 정책</th>
+              <th>노출 기간</th>
+              <th>상태</th>
+              <th>작업</th>
+            </tr>
+          </thead>
+          <tbody>
+            {loading ? (
               <tr>
-                <th>Popup ID</th>
-                <th>팝업 · 이미지(S3)</th>
-                <th>연결 이벤트</th>
-                <th>오늘 다시 보지 않기</th>
-                <th>상태</th>
+                <td colSpan={7}>로딩 중...</td>
               </tr>
-            </thead>
-            <tbody>
-              {filteredPopups.map((p) => (
-                <tr key={p.id} className="event-row">
-                  <td>
-                    <span className="target-mono">
-                      <b>{p.id}</b>
-                    </span>
-                  </td>
-                  <td>
-                    <div className="thumb">
-                      <div className="thumb-box" style={{ background: thumbColor(p.id) }}>
-                        POPUP
-                      </div>
-                      <div className="thumb-meta">
-                        <div className="thumb-name">{p.name}</div>
-                        <div className="s3path">
-                          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                            <path d="M3 7a9 3 0 0 0 18 0M3 7a9 3 0 0 1 18 0M3 7v10a9 3 0 0 0 18 0V7" />
-                          </svg>
-                          public/event/{p.appEventId}/popup
+            ) : filteredPopups.length === 0 ? (
+              <tr>
+                <td colSpan={7}>등록된 팝업이 없습니다.</td>
+              </tr>
+            ) : (
+              filteredPopups.map((popup) => {
+                const isOpen = selectedPopup?.id === popup.id
+
+                return (
+                  <Fragment key={popup.id}>
+                    <tr
+                      className={`event-row ${isOpen ? 'open' : ''}`}
+                      onClick={() => void handleSelectPopup(popup.id)}
+                    >
+                      <td>
+                        <span className="id-chip">
+                          <span className="dot"></span>
+                          {popup.id}
+                        </span>
+                      </td>
+                      <td>
+                        <div className="thumb">
+                          {popup.imageUrl ? (
+                            <img className="thumb-box" src={popup.imageUrl} alt="" />
+                          ) : (
+                            <div className="thumb-box" style={{ background: thumbColor(String(popup.id)) }}>
+                              POPUP
+                            </div>
+                          )}
+                          <div className="thumb-meta">
+                            <div className="thumb-name">{popup.popupTitle}</div>
+                            <div className="s3path">{popup.content}</div>
+                          </div>
                         </div>
-                      </div>
-                    </div>
-                  </td>
-                  <td>
-                    <div className="link-ev">
-                      <span className="id-chip">
-                        <span className="dot"></span>
-                        {p.appEventId}
-                      </span>
-                      <span className="ev-lite">{getEventName(p.appEventId)}</span>
-                    </div>
-                  </td>
-                  <td>
-                    {p.hideToday ? (
-                      <span className="badge g">
-                        <span className="bdot"></span>사용
-                      </span>
-                    ) : (
-                      <span className="badge n">
-                        <span className="bdot"></span>미사용
-                      </span>
-                    )}
-                  </td>
-                  <td>
-                    <span className={`badge ${statusClass(p.status)}`}>
-                      <span className="bdot"></span>
-                      {p.status}
-                    </span>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+                      </td>
+                      <td>
+                        <div className="link-ev">
+                          <span className="id-chip">
+                            <span className="dot"></span>
+                            {popup.targetId}
+                          </span>
+                          <span className="ev-lite">{targetTypeLabels[popup.contentTargetType]}</span>
+                        </div>
+                      </td>
+                      <td>{exposurePolicyLabels[popup.exposurePolicy]}</td>
+                      <td className="period">
+                        {formatDateTime(popup.displayStartAt)}
+                        <span className="dash"> → </span>
+                        <br />
+                        {formatDateTime(popup.displayEndAt)}
+                      </td>
+                      <td>
+                        <span className={`badge ${statusClass(popup.status)}`}>
+                          {statusLabels[popup.status] ?? popup.status}
+                        </span>
+                      </td>
+                      <td>
+                        <div className="action-buttons" onClick={(clickEvent) => clickEvent.stopPropagation()}>
+                          <button className="btn-approve" onClick={() => void openEditModal(popup.id)} type="button">
+                            수정
+                          </button>
+                          <button
+                            className="btn-reject"
+                            onClick={() => void handleCancelPopup(popup)}
+                            disabled={popup.status === 'ENDED' || popup.status === 'CANCELED'}
+                            type="button"
+                          >
+                            종료
+                          </button>
+                        </div>
+                      </td>
+                    </tr>
+                    {isOpen && selectedPopup ? (
+                      <tr className="detail-row">
+                        <td colSpan={7}>
+                          <div className="report-detail-panel">
+                            {detailLoading ? (
+                              <div>상세 정보를 불러오는 중...</div>
+                            ) : (
+                              <>
+                                {selectedPopup.imageUrl ? (
+                                  <img
+                                    src={selectedPopup.imageUrl}
+                                    alt=""
+                                    style={{ maxWidth: 240, borderRadius: 8, border: '1px solid #ebebef' }}
+                                  />
+                                ) : null}
+                                <DetailRow label="팝업 제목" value={selectedPopup.popupTitle} />
+                                <DetailRow label="내용" value={selectedPopup.content} />
+                                <DetailRow label="CTA" value={selectedPopup.ctaText} />
+                                <DetailRow label="대상" value={`${targetTypeLabels[selectedPopup.contentTargetType]} ${selectedPopup.targetId}`} />
+                                <DetailRow label="노출 정책" value={exposurePolicyLabels[selectedPopup.exposurePolicy]} />
+                                <DetailRow label="노출 시작" value={formatDateTime(selectedPopup.displayStartAt)} />
+                                <DetailRow label="노출 종료" value={formatDateTime(selectedPopup.displayEndAt)} />
+                                <DetailRow label="생성일시" value={formatDateTime(selectedPopup.createdAt)} />
+                                <DetailRow label="수정일시" value={formatDateTime(selectedPopup.updatedAt)} />
+                              </>
+                            )}
+                          </div>
+                        </td>
+                      </tr>
+                    ) : null}
+                  </Fragment>
+                )
+              })
+            )}
+          </tbody>
+        </table>
+      </div>
+
+      {renderPagination()}
+
+      {modalMode ? (
+        <div className="modal-overlay" onClick={closeModal}>
+          <form className="modal-container" onClick={(event) => event.stopPropagation()} onSubmit={handleSubmit}>
+            <div className="modal-header">
+              <h2>{modalMode === 'edit' ? '팝업 수정' : '새 팝업 만들기'}</h2>
+              <p>노출 대상, 기간, 문구와 이미지를 입력합니다.</p>
+            </div>
+
+            <div className="modal-body">
+              <label className="field">
+                <span>연결 앱 이벤트 ID</span>
+                <input
+                  type="number"
+                  value={form.targetId}
+                  onChange={(event) => setForm((current) => ({ ...current, targetId: event.target.value }))}
+                />
+              </label>
+              <label className="field">
+                <span>대상 유형</span>
+                <select
+                  value={form.contentTargetType}
+                  onChange={(event) =>
+                    setForm((current) => ({ ...current, contentTargetType: event.target.value as PopupContentTargetType }))
+                  }
+                >
+                  <option value="APP_EVENT">앱 이벤트</option>
+                </select>
+              </label>
+              <label className="field">
+                <span>노출 정책</span>
+                <select
+                  value={form.exposurePolicy}
+                  onChange={(event) =>
+                    setForm((current) => ({ ...current, exposurePolicy: event.target.value as PopupExposurePolicy }))
+                  }
+                >
+                  <option value="ALWAYS_DURING_PERIOD">기간 내 항상 노출</option>
+                </select>
+              </label>
+              <label className="field">
+                <span>팝업 제목</span>
+                <input
+                  value={form.popupTitle}
+                  onChange={(event) => setForm((current) => ({ ...current, popupTitle: event.target.value }))}
+                />
+              </label>
+              <label className="field">
+                <span>내용</span>
+                <input
+                  value={form.content}
+                  onChange={(event) => setForm((current) => ({ ...current, content: event.target.value }))}
+                />
+              </label>
+              <label className="field">
+                <span>CTA 문구</span>
+                <input
+                  value={form.ctaText}
+                  onChange={(event) => setForm((current) => ({ ...current, ctaText: event.target.value }))}
+                />
+              </label>
+              <label className="field">
+                <span>노출 시작</span>
+                <input
+                  type="datetime-local"
+                  value={form.displayStartAt}
+                  onChange={(event) => setForm((current) => ({ ...current, displayStartAt: event.target.value }))}
+                />
+              </label>
+              <label className="field">
+                <span>노출 종료</span>
+                <input
+                  type="datetime-local"
+                  value={form.displayEndAt}
+                  onChange={(event) => setForm((current) => ({ ...current, displayEndAt: event.target.value }))}
+                />
+              </label>
+              <label className="field">
+                <span>{modalMode === 'edit' ? '이미지 변경' : '팝업 이미지'}</span>
+                <input
+                  type="file"
+                  accept="image/*"
+                  onChange={(event) =>
+                    setForm((current) => ({ ...current, file: event.target.files?.[0] ?? null }))
+                  }
+                />
+              </label>
+            </div>
+
+            <div className="modal-footer">
+              <button className="btn-modal-cancel" onClick={closeModal} disabled={saving} type="button">
+                취소
+              </button>
+              <button className="btn-modal-confirm" disabled={saving} type="submit">
+                {saving ? '저장 중...' : modalMode === 'edit' ? '수정 완료' : '팝업 생성'}
+              </button>
+            </div>
+          </form>
         </div>
-      ) : (
-        <div className="event-table-panel">
-          <div className="empty-state">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">
-              <path d="M3 7a9 3 0 0 0 18 0M3 7a9 3 0 0 1 18 0M3 7v10a9 3 0 0 0 18 0V7" />
-            </svg>
-            <h3>연결된 팝업이 없습니다</h3>
-            <p>필터를 변경하거나 이벤트 홍보 수단에 해당 채널을 추가해 보세요.</p>
-          </div>
-        </div>
-      )}
+      ) : null}
     </div>
   )
+}
+
+function DetailRow({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="report-detail-row">
+      <span className="detail-label">{label}</span>
+      <span className="detail-value">{value}</span>
+    </div>
+  )
+}
+
+function formatDateTime(value: string) {
+  return new Date(value).toLocaleString('ko-KR')
+}
+
+function toDatetimeLocalValue(value: string) {
+  const date = new Date(value)
+  const offset = date.getTimezoneOffset() * 60_000
+  return new Date(date.getTime() - offset).toISOString().slice(0, 16)
+}
+
+function toIsoString(value: string) {
+  return new Date(value).toISOString()
+}
+
+function statusClass(status: PopupStatus) {
+  switch (status) {
+    case 'ACTIVE':
+      return 'g'
+    case 'ENDED':
+    case 'CANCELED':
+      return 'a'
+    case 'SCHEDULED':
+    default:
+      return 'n'
+  }
+}
+
+function thumbColor(id: string) {
+  const colors = [
+    ['#EC1E79', '#B60E5A'],
+    ['#3457C4', '#22368A'],
+    ['#0E9F6E', '#0A7A54'],
+  ]
+  let h = 0
+  for (const c of id) h = (h * 31 + c.charCodeAt(0)) >>> 0
+  const [a, b] = colors[h % colors.length]
+  return `linear-gradient(135deg,${a},${b})`
 }

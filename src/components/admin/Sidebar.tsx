@@ -2,7 +2,8 @@
 
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
+import { getAdminProfile } from '@/lib/api/auth.api'
 
 type MenuItem = {
   href?: string
@@ -28,9 +29,33 @@ const menuItems: MenuItem[] = [
 
 export function Sidebar() {
   const pathname = usePathname()
+  const [profile, setProfile] = useState<{
+    nickName: string
+    email: string
+  } | null>(null)
   const [expandedMenus, setExpandedMenus] = useState<Record<string, boolean>>({
     '이벤트 관리': true, // 기본적으로 이벤트 관리는 열려있음
   })
+
+  useEffect(() => {
+    let mounted = true
+
+    getAdminProfile()
+      .then((response) => {
+        if (mounted && response.isSuccess) {
+          setProfile(response.result)
+        }
+      })
+      .catch(() => {
+        if (mounted) {
+          setProfile(null)
+        }
+      })
+
+    return () => {
+      mounted = false
+    }
+  }, [])
 
   const toggleMenu = (label: string) => {
     setExpandedMenus((prev) => ({
@@ -117,8 +142,8 @@ export function Sidebar() {
       <div className="sidebar-profile">
         <img src="/storix-logo-pink.svg" alt="" aria-hidden="true" />
         <div>
-          <strong>Kaya Heo</strong>
-          <span>contact@storix.kr</span>
+          <strong>{profile?.nickName ?? '관리자'}</strong>
+          <span>{profile?.email ?? '프로필 조회 중'}</span>
         </div>
       </div>
     </aside>

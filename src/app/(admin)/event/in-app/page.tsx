@@ -1,64 +1,252 @@
 'use client'
 
-import React, { useState } from 'react'
+import { FormEvent, Fragment, useEffect, useMemo, useState } from 'react'
+import {
+  cancelAppEvent,
+  createAppEvent,
+  getAppEvent,
+  getAppEvents,
+  updateAppEvent,
+  type AppEvent,
+  type AppEventPayload,
+  type AppEventStatus,
+  type PromotionType,
+} from '@/lib/api/app-event.api'
+
+type FormState = {
+  name: string
+  description: string
+  startAt: string
+  endAt: string
+  hasWinner: boolean
+  promotionTypes: PromotionType[]
+}
+
+const emptyForm: FormState = {
+  name: '',
+  description: '',
+  startAt: '',
+  endAt: '',
+  hasWinner: false,
+  promotionTypes: [],
+}
+
+const promotionLabels: Record<PromotionType, string> = {
+  PUSH: '푸시',
+  POPUP: '팝업',
+  BANNER: '배너',
+}
+
+const statusLabels: Record<AppEventStatus, string> = {
+  SCHEDULED: '예약',
+  ACTIVE: '진행중',
+  ENDED: '종료',
+  CANCELED: '강제 종료',
+}
+
+const promotionTypes: PromotionType[] = ['PUSH', 'POPUP', 'BANNER']
 
 export default function InAppEventPage() {
-  const [openRow, setOpenRow] = useState<string | null>(null)
+  const [events, setEvents] = useState<AppEvent[]>([])
+  const [selectedEvent, setSelectedEvent] = useState<AppEvent | null>(null)
   const [searchQuery, setSearchQuery] = useState('')
+  const [currentPage, setCurrentPage] = useState(0)
+  const [totalPages, setTotalPages] = useState(0)
+  const [totalElements, setTotalElements] = useState(0)
+  const [loading, setLoading] = useState(false)
+  const [detailLoading, setDetailLoading] = useState(false)
+  const [saving, setSaving] = useState(false)
+  const [errorMessage, setErrorMessage] = useState('')
+  const [modalMode, setModalMode] = useState<'create' | 'edit' | null>(null)
+  const [form, setForm] = useState<FormState>(emptyForm)
 
-  // Mock data - 추후 API 연동
-  const events = [
-    {
-      id: 'APP_EVT_0001',
-      name: '출석 체크 이벤트',
-      desc: '출석 이벤트용 출석 체크 이벤트',
-      start: '2026-07-01 00:00',
-      end: '2026-07-31 23:59',
-      promo: ['PUSH', 'POPUP', 'BANNER'],
-      winner: true,
-      status: '진행중',
-    },
-    {
-      id: 'APP_EVT_0002',
-      name: '첫 구매 리워드 이벤트',
-      desc: '신규 유저 첫 결제 시 적립',
-      start: '2026-06-15 00:00',
-      end: '2026-07-15 23:59',
-      promo: ['PUSH', 'BANNER'],
-      winner: false,
-      status: '진행중',
-    },
-  ]
-
-  const pushes = [
-    { id: 'PUSH_0001', appEventId: 'APP_EVT_0001', title: '출석 체크 이벤트 시작!', scheduled: '2026-07-01 10:00', status: '발송완료' },
-    { id: 'PUSH_0002', appEventId: 'APP_EVT_0001', title: '출석 체크 마감 D-3', scheduled: '2026-07-28 12:00', status: '예약' },
-  ]
-
-  const popups = [
-    { id: 'POPUP_0001', appEventId: 'APP_EVT_0001', name: '출석 체크 안내 팝업', status: '노출중' },
-  ]
-
-  const banners = [
-    { id: 'BANNER_0001', appEventId: 'APP_EVT_0001', name: '출석 체크 홈 배너', status: '노출중' },
-    { id: 'BANNER_0002', appEventId: 'APP_EVT_0002', name: '첫 구매 리워드 배너', status: '노출중' },
-  ]
-
-  const getConnCount = (eventId: string) => ({
-    push: pushes.filter((p) => p.appEventId === eventId).length,
-    popup: popups.filter((p) => p.appEventId === eventId).length,
-    banner: banners.filter((b) => b.appEventId === eventId).length,
-  })
-
-  const promoLabel: Record<string, string> = { PUSH: '푸시', POPUP: '팝업', BANNER: '배너' }
-  const statusClass = (s: string) => ({'진행중': 'g', '노출중': 'g', '발송완료': 'g', '예약': 'a', '대기': 'a', '종료': 'n'}[s] || 'n')
-
-  const filteredEvents = events.filter(
-    (ev) =>
-      !searchQuery ||
-      ev.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      ev.id.toLowerCase().includes(searchQuery.toLowerCase())
+  const filteredEvents = useMemo(
+    () =>
+      events.filter(
+        (event) =>
+          !searchQuery ||
+          event.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
+          String(event.id).includes(searchQuery),
+      ),
+    [events, searchQuery],
   )
+
+  const fetchEvents = async (page = currentPage) => {
+    setLoading(true)
+    setErrorMessage('')
+    try {
+      const response = await getAppEvents(page)
+      if (response.isSuccess) {
+        setEvents(response.result.content)
+        setCurrentPage(response.result.page)
+        setTotalPages(response.result.totalPages)
+        setTotalElements(response.result.totalElements)
+      }
+    } catch {
+      setErrorMessage('앱 이벤트 목록을 불러오지 못했습니다.')
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  useEffect(() => {
+    void fetchEvents(currentPage)
+  }, [currentPage])
+
+  const handleSelectEvent = async (appEventId: number) => {
+    if (selectedEvent?.id === appEventId) {
+      setSelectedEvent(null)
+      return
+    }
+
+    setDetailLoading(true)
+    setErrorMessage('')
+    try {
+      const response = await getAppEvent(appEventId)
+      if (response.isSuccess) {
+        setSelectedEvent(response.result)
+      }
+    } catch {
+      setErrorMessage('앱 이벤트 상세를 불러오지 못했습니다.')
+    } finally {
+      setDetailLoading(false)
+    }
+  }
+
+  const openCreateModal = () => {
+    setForm(emptyForm)
+    setModalMode('create')
+  }
+
+  const openEditModal = (event: AppEvent) => {
+    setForm({
+      name: event.name,
+      description: event.description,
+      startAt: toDatetimeLocalValue(event.startAt),
+      endAt: toDatetimeLocalValue(event.endAt),
+      hasWinner: event.hasWinner,
+      promotionTypes: event.promotionTypes,
+    })
+    setModalMode('edit')
+  }
+
+  const closeModal = () => {
+    if (saving) return
+    setModalMode(null)
+    setForm(emptyForm)
+  }
+
+  const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault()
+
+    if (!form.name.trim() || !form.description.trim() || !form.startAt || !form.endAt) {
+      alert('이벤트명, 설명, 시작일시, 종료일시를 모두 입력해주세요.')
+      return
+    }
+
+    if (form.promotionTypes.length === 0) {
+      alert('홍보 수단을 하나 이상 선택해주세요.')
+      return
+    }
+
+    const payload: AppEventPayload = {
+      name: form.name.trim(),
+      description: form.description.trim(),
+      startAt: toIsoString(form.startAt),
+      endAt: toIsoString(form.endAt),
+      hasWinner: form.hasWinner,
+      promotionTypes: form.promotionTypes,
+    }
+
+    setSaving(true)
+    try {
+      if (modalMode === 'edit' && selectedEvent) {
+        const response = await updateAppEvent(selectedEvent.id, payload)
+        if (response.isSuccess) {
+          setSelectedEvent(response.result)
+        }
+      } else {
+        const response = await createAppEvent(payload)
+        if (response.isSuccess) {
+          setSelectedEvent(response.result)
+          setCurrentPage(0)
+        }
+      }
+
+      setModalMode(null)
+      setForm(emptyForm)
+      await fetchEvents(modalMode === 'create' ? 0 : currentPage)
+    } catch {
+      alert(modalMode === 'edit' ? '앱 이벤트 수정에 실패했습니다.' : '앱 이벤트 생성에 실패했습니다.')
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  const handleCancelEvent = async (event: AppEvent) => {
+    const confirmed = window.confirm(`'${event.name}' 이벤트를 강제 종료할까요?`)
+    if (!confirmed) return
+
+    try {
+      const response = await cancelAppEvent(event.id)
+      if (response.isSuccess) {
+        setSelectedEvent(response.result)
+        await fetchEvents(currentPage)
+      }
+    } catch {
+      alert('앱 이벤트 강제 종료에 실패했습니다.')
+    }
+  }
+
+  const togglePromotionType = (type: PromotionType) => {
+    setForm((current) => ({
+      ...current,
+      promotionTypes: current.promotionTypes.includes(type)
+        ? current.promotionTypes.filter((item) => item !== type)
+        : [...current.promotionTypes, type],
+    }))
+  }
+
+  const renderPagination = () => {
+    if (totalPages <= 1) return null
+
+    return (
+      <div className="pagination">
+        <button
+          className="pagination-button"
+          onClick={() => setCurrentPage((page) => Math.max(0, page - 1))}
+          disabled={currentPage === 0}
+          type="button"
+        >
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <path d="m15 18-6-6 6-6" />
+          </svg>
+        </button>
+
+        {Array.from({ length: totalPages }).map((_, index) => (
+          <button
+            key={index}
+            className={`pagination-button ${currentPage === index ? 'active' : ''}`}
+            onClick={() => setCurrentPage(index)}
+            type="button"
+          >
+            {index + 1}
+          </button>
+        ))}
+
+        <button
+          className="pagination-button"
+          onClick={() => setCurrentPage((page) => Math.min(totalPages - 1, page + 1))}
+          disabled={currentPage >= totalPages - 1}
+          type="button"
+        >
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <path d="m9 18 6-6-6-6" />
+          </svg>
+        </button>
+      </div>
+    )
+  }
 
   return (
     <div className="event-page-container">
@@ -66,10 +254,10 @@ export default function InAppEventPage() {
         <div>
           <h1>인앱 이벤트 관리</h1>
           <p className="page-sub">
-            appEventId가 발급된 이벤트 목록입니다. 행을 클릭하면 해당 이벤트에 연결된 푸시·팝업·배너 현황을 볼 수 있고, 새 이벤트를 만들면 appEventId가 발급됩니다.
+            앱 이벤트를 생성하고 appEventId 기준으로 푸시·팝업·배너 홍보 수단을 연결합니다.
           </p>
         </div>
-        <button className="btn-primary">
+        <button className="btn-primary" onClick={openCreateModal} type="button">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round">
             <path d="M5 12h14M12 5v14" />
           </svg>
@@ -87,11 +275,13 @@ export default function InAppEventPage() {
             type="text"
             placeholder="이벤트명 · appEventId 검색"
             value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
+            onChange={(event) => setSearchQuery(event.target.value)}
           />
         </div>
-        <span className="filter-note">전체 {filteredEvents.length}건</span>
+        <span className="filter-note">전체 {searchQuery ? filteredEvents.length : totalElements}건</span>
       </div>
+
+      {errorMessage ? <p className="login-message">{errorMessage}</p> : null}
 
       <div className="event-table-panel">
         <table className="event-table">
@@ -102,223 +292,236 @@ export default function InAppEventPage() {
               <th>기간</th>
               <th>홍보 수단</th>
               <th>당첨자</th>
-              <th>연결 현황</th>
               <th>상태</th>
+              <th>작업</th>
               <th></th>
             </tr>
           </thead>
           <tbody>
-            {filteredEvents.map((ev) => {
-              const conn = getConnCount(ev.id)
-              const isOpen = openRow === ev.id
+            {loading ? (
+              <tr>
+                <td colSpan={8}>로딩 중...</td>
+              </tr>
+            ) : filteredEvents.length === 0 ? (
+              <tr>
+                <td colSpan={8}>등록된 앱 이벤트가 없습니다.</td>
+              </tr>
+            ) : (
+              filteredEvents.map((event) => {
+                const isOpen = selectedEvent?.id === event.id
 
-              return (
-                <React.Fragment key={ev.id}>
-                  <tr className={`event-row ${isOpen ? 'open' : ''}`} onClick={() => setOpenRow(isOpen ? null : ev.id)}>
-                    <td>
-                      <span className="id-chip">
-                        <span className="dot"></span>
-                        {ev.id}
-                      </span>
-                    </td>
-                    <td>
-                      <div className="ev-name">{ev.name}</div>
-                      <div className="ev-desc">{ev.desc}</div>
-                    </td>
-                    <td className="period">
-                      {ev.start}
-                      <span className="dash"> → </span>
-                      <br />
-                      {ev.end}
-                    </td>
-                    <td>
-                      <div className="promo-tags">
-                        {['PUSH', 'POPUP', 'BANNER'].map((p) => (
-                          <span key={p} className={`promo-tag ${ev.promo.includes(p) ? 'on' : ''}`}>
-                            {promoLabel[p]}
-                          </span>
-                        ))}
-                      </div>
-                    </td>
-                    <td>
-                      {ev.winner ? (
-                        <span className="badge a">
-                          <span className="bdot"></span>당첨자 O
+                return (
+                  <Fragment key={event.id}>
+                    <tr
+                      key={event.id}
+                      className={`event-row ${isOpen ? 'open' : ''}`}
+                      onClick={() => void handleSelectEvent(event.id)}
+                    >
+                      <td>
+                        <span className="id-chip">
+                          <span className="dot"></span>
+                          {event.id}
                         </span>
-                      ) : (
-                        <span className="badge n">
-                          <span className="bdot"></span>없음
-                        </span>
-                      )}
-                    </td>
-                    <td>
-                      <div className="conn-pills">
-                        <span className={`conn-pill ${conn.push > 0 ? 'has' : ''}`}>
-                          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                            <path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9" />
-                            <path d="M13.73 21a2 2 0 0 1-3.46 0" />
-                          </svg>
-                          <b>{conn.push}</b>
-                        </span>
-                        <span className={`conn-pill ${conn.popup > 0 ? 'has' : ''}`}>
-                          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                            <rect x="3" y="4" width="18" height="14" rx="2" />
-                            <path d="M8 21h8" />
-                          </svg>
-                          <b>{conn.popup}</b>
-                        </span>
-                        <span className={`conn-pill ${conn.banner > 0 ? 'has' : ''}`}>
-                          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                            <rect x="3" y="7" width="18" height="6" rx="1.5" />
-                            <path d="M3 17h18" />
-                          </svg>
-                          <b>{conn.banner}</b>
-                        </span>
-                      </div>
-                    </td>
-                    <td>
-                      <span className={`badge ${statusClass(ev.status)}`}>
-                        <span className="bdot"></span>
-                        {ev.status}
-                      </span>
-                    </td>
-                    <td className="cell-caret">
-                      <svg className={`caret ${isOpen ? 'open' : ''}`} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round">
-                        <path d="m9 18 6-6-6-6" />
-                      </svg>
-                    </td>
-                  </tr>
-                  {isOpen && (
-                    <tr className="detail-row">
-                      <td colSpan={8}>
-                        <div className="detail-inner">
-                          <div className="conn-col">
-                            <div className="conn-col-head">
-                              <span className="ttl">
-                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                                  <path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9" />
-                                  <path d="M13.73 21a2 2 0 0 1-3.46 0" />
-                                </svg>
-                                푸시 알림
-                              </span>
-                              <span className="cnt">{conn.push}</span>
-                            </div>
-                            <div className="conn-list">
-                              {pushes.filter((p) => p.appEventId === ev.id).length > 0 ? (
-                                pushes
-                                  .filter((p) => p.appEventId === ev.id)
-                                  .map((p) => (
-                                    <div key={p.id} className="conn-item">
-                                      <div className="ci-id">{p.id}</div>
-                                      <div className="ci-name">{p.title}</div>
-                                      <div className="ci-meta">
-                                        <span className={`badge ${statusClass(p.status)}`}>
-                                          <span className="bdot"></span>
-                                          {p.status}
-                                        </span>
-                                        <span>· {p.scheduled}</span>
-                                      </div>
-                                    </div>
-                                  ))
-                              ) : (
-                                <div className="conn-empty">
-                                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                                    <path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9" />
-                                    <path d="M13.73 21a2 2 0 0 1-3.46 0" />
-                                  </svg>
-                                  <div>연결된 푸시 알림 없음</div>
-                                </div>
-                              )}
-                            </div>
-                          </div>
-
-                          <div className="conn-col">
-                            <div className="conn-col-head">
-                              <span className="ttl">
-                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                                  <rect x="3" y="4" width="18" height="14" rx="2" />
-                                  <path d="M8 21h8" />
-                                </svg>
-                                팝업
-                              </span>
-                              <span className="cnt">{conn.popup}</span>
-                            </div>
-                            <div className="conn-list">
-                              {popups.filter((p) => p.appEventId === ev.id).length > 0 ? (
-                                popups
-                                  .filter((p) => p.appEventId === ev.id)
-                                  .map((p) => (
-                                    <div key={p.id} className="conn-item">
-                                      <div className="ci-id">{p.id}</div>
-                                      <div className="ci-name">{p.name}</div>
-                                      <div className="ci-meta">
-                                        <span className={`badge ${statusClass(p.status)}`}>
-                                          <span className="bdot"></span>
-                                          {p.status}
-                                        </span>
-                                      </div>
-                                    </div>
-                                  ))
-                              ) : (
-                                <div className="conn-empty">
-                                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                                    <rect x="3" y="4" width="18" height="14" rx="2" />
-                                    <path d="M8 21h8" />
-                                  </svg>
-                                  <div>연결된 팝업 없음</div>
-                                </div>
-                              )}
-                            </div>
-                          </div>
-
-                          <div className="conn-col">
-                            <div className="conn-col-head">
-                              <span className="ttl">
-                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                                  <rect x="3" y="7" width="18" height="6" rx="1.5" />
-                                  <path d="M3 17h18" />
-                                </svg>
-                                배너
-                              </span>
-                              <span className="cnt">{conn.banner}</span>
-                            </div>
-                            <div className="conn-list">
-                              {banners.filter((b) => b.appEventId === ev.id).length > 0 ? (
-                                banners
-                                  .filter((b) => b.appEventId === ev.id)
-                                  .map((b) => (
-                                    <div key={b.id} className="conn-item">
-                                      <div className="ci-id">{b.id}</div>
-                                      <div className="ci-name">{b.name}</div>
-                                      <div className="ci-meta">
-                                        <span className={`badge ${statusClass(b.status)}`}>
-                                          <span className="bdot"></span>
-                                          {b.status}
-                                        </span>
-                                      </div>
-                                    </div>
-                                  ))
-                              ) : (
-                                <div className="conn-empty">
-                                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                                    <rect x="3" y="7" width="18" height="6" rx="1.5" />
-                                    <path d="M3 17h18" />
-                                  </svg>
-                                  <div>연결된 배너 없음</div>
-                                </div>
-                              )}
-                            </div>
-                          </div>
+                      </td>
+                      <td>
+                        <div className="ev-name">{event.name}</div>
+                        <div className="ev-desc">{event.description}</div>
+                      </td>
+                      <td className="period">
+                        {formatDateTime(event.startAt)}
+                        <span className="dash"> → </span>
+                        <br />
+                        {formatDateTime(event.endAt)}
+                      </td>
+                      <td>
+                        <div className="promo-tags">
+                          {promotionTypes.map((type) => (
+                            <span
+                              key={type}
+                              className={`promo-tag ${event.promotionTypes.includes(type) ? 'on' : ''}`}
+                            >
+                              {promotionLabels[type]}
+                            </span>
+                          ))}
                         </div>
                       </td>
+                      <td>
+                        {event.hasWinner ? (
+                          <span className="badge a">당첨자 O</span>
+                        ) : (
+                          <span className="badge n">없음</span>
+                        )}
+                      </td>
+                      <td>
+                        <span className={`badge ${statusClass(event.status)}`}>
+                          {statusLabels[event.status] ?? event.status}
+                        </span>
+                      </td>
+                      <td>
+                        <div className="action-buttons" onClick={(clickEvent) => clickEvent.stopPropagation()}>
+                          <button className="btn-approve" onClick={() => openEditModal(event)} type="button">
+                            수정
+                          </button>
+                          <button
+                            className="btn-reject"
+                            onClick={() => void handleCancelEvent(event)}
+                            disabled={event.status === 'ENDED' || event.status === 'CANCELED'}
+                            type="button"
+                          >
+                            종료
+                          </button>
+                        </div>
+                      </td>
+                      <td className="cell-caret">
+                        <svg className={`caret ${isOpen ? 'open' : ''}`} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round">
+                          <path d="m9 18 6-6-6-6" />
+                        </svg>
+                      </td>
                     </tr>
-                  )}
-                </React.Fragment>
-              )
-            })}
+                    {isOpen && selectedEvent ? (
+                      <tr className="detail-row" key={`${event.id}-detail`}>
+                        <td colSpan={8}>
+                          <div className="report-detail-panel">
+                            {detailLoading ? (
+                              <div>상세 정보를 불러오는 중...</div>
+                            ) : (
+                              <>
+                                <DetailRow label="이벤트명" value={selectedEvent.name} />
+                                <DetailRow label="설명" value={selectedEvent.description} />
+                                <DetailRow label="시작일시" value={formatDateTime(selectedEvent.startAt)} />
+                                <DetailRow label="종료일시" value={formatDateTime(selectedEvent.endAt)} />
+                                <DetailRow label="생성일시" value={formatDateTime(selectedEvent.createdAt)} />
+                                <DetailRow label="수정일시" value={formatDateTime(selectedEvent.updatedAt)} />
+                              </>
+                            )}
+                          </div>
+                        </td>
+                      </tr>
+                    ) : null}
+                  </Fragment>
+                )
+              })
+            )}
           </tbody>
         </table>
       </div>
+
+      {renderPagination()}
+
+      {modalMode ? (
+        <div className="modal-overlay" onClick={closeModal}>
+          <form className="modal-container" onClick={(event) => event.stopPropagation()} onSubmit={handleSubmit}>
+            <div className="modal-header">
+              <h2>{modalMode === 'edit' ? '앱 이벤트 수정' : '새 앱 이벤트 만들기'}</h2>
+              <p>앱 이벤트 기본 정보와 연결할 홍보 수단을 입력합니다.</p>
+            </div>
+
+            <div className="modal-body">
+              <label className="field">
+                <span>이벤트명</span>
+                <input
+                  value={form.name}
+                  onChange={(event) => setForm((current) => ({ ...current, name: event.target.value }))}
+                />
+              </label>
+              <label className="field">
+                <span>설명</span>
+                <input
+                  value={form.description}
+                  onChange={(event) => setForm((current) => ({ ...current, description: event.target.value }))}
+                />
+              </label>
+              <label className="field">
+                <span>시작 일시</span>
+                <input
+                  type="datetime-local"
+                  value={form.startAt}
+                  onChange={(event) => setForm((current) => ({ ...current, startAt: event.target.value }))}
+                />
+              </label>
+              <label className="field">
+                <span>종료 일시</span>
+                <input
+                  type="datetime-local"
+                  value={form.endAt}
+                  onChange={(event) => setForm((current) => ({ ...current, endAt: event.target.value }))}
+                />
+              </label>
+
+              <div className="promotion-selector" aria-label="홍보 수단 선택">
+                <span>홍보 수단</span>
+                {promotionTypes.map((type) => (
+                  <label key={type}>
+                    <input
+                      type="checkbox"
+                      checked={form.promotionTypes.includes(type)}
+                      onChange={() => togglePromotionType(type)}
+                    />
+                    {promotionLabels[type]}
+                  </label>
+                ))}
+              </div>
+
+              <label className="action-checkbox">
+                <input
+                  type="checkbox"
+                  checked={form.hasWinner}
+                  onChange={(event) => setForm((current) => ({ ...current, hasWinner: event.target.checked }))}
+                />
+                <div className="checkbox-content">
+                  <div className="checkbox-title">당첨자 안내 있음</div>
+                  <div className="checkbox-desc">이벤트 종료 후 당첨자 안내가 필요한 이벤트입니다.</div>
+                </div>
+              </label>
+            </div>
+
+            <div className="modal-footer">
+              <button className="btn-modal-cancel" onClick={closeModal} disabled={saving} type="button">
+                취소
+              </button>
+              <button className="btn-modal-confirm" disabled={saving} type="submit">
+                {saving ? '저장 중...' : modalMode === 'edit' ? '수정 완료' : '이벤트 생성'}
+              </button>
+            </div>
+          </form>
+        </div>
+      ) : null}
     </div>
   )
+}
+
+function DetailRow({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="report-detail-row">
+      <span className="detail-label">{label}</span>
+      <span className="detail-value">{value}</span>
+    </div>
+  )
+}
+
+function formatDateTime(value: string) {
+  return new Date(value).toLocaleString('ko-KR')
+}
+
+function toDatetimeLocalValue(value: string) {
+  const date = new Date(value)
+  const offset = date.getTimezoneOffset() * 60_000
+  return new Date(date.getTime() - offset).toISOString().slice(0, 16)
+}
+
+function toIsoString(value: string) {
+  return new Date(value).toISOString()
+}
+
+function statusClass(status: AppEventStatus) {
+  switch (status) {
+    case 'ACTIVE':
+      return 'g'
+    case 'ENDED':
+    case 'CANCELED':
+      return 'a'
+    case 'SCHEDULED':
+    default:
+      return 'n'
+  }
 }

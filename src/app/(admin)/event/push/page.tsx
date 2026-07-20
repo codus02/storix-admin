@@ -1,48 +1,296 @@
 'use client'
 
-import { useState } from 'react'
+import { FormEvent, Fragment, useEffect, useMemo, useState } from 'react'
+import {
+  broadcastAdminNotification,
+  cancelAdminNotification,
+  createAdminNotification,
+  getAdminNotification,
+  getAdminNotifications,
+  updateAdminNotification,
+  type AdminNotification,
+  type AdminNotificationListItem,
+  type AdminNotificationPayload,
+  type NotificationStatus,
+  type NotificationTargetType,
+  type NotificationType,
+  type SendType,
+  type TargetAudience,
+} from '@/lib/api/notification.api'
+
+type FormState = {
+  title: string
+  content: string
+  notificationType: NotificationType
+  targetAudience: TargetAudience
+  sendType: SendType
+  scheduledAt: string
+  targetType: NotificationTargetType
+  eventTargetId: string
+  targetLink: string
+}
+
+const emptyForm: FormState = {
+  title: '',
+  content: '',
+  notificationType: 'MARKETING',
+  targetAudience: 'ALL',
+  sendType: 'IMMEDIATE',
+  scheduledAt: '',
+  targetType: 'NONE',
+  eventTargetId: '',
+  targetLink: '',
+}
+
+const notificationTypeLabels: Record<NotificationType, string> = {
+  MARKETING: '마케팅',
+  NOTICE: '공지',
+}
+
+const sendTypeLabels: Record<SendType, string> = {
+  IMMEDIATE: '즉시 발송',
+  SCHEDULED: '예약 발송',
+}
+
+const targetTypeLabels: Record<NotificationTargetType, string> = {
+  NONE: '없음',
+  APP_EVENT: '앱 이벤트',
+}
+
+const statusLabels: Record<NotificationStatus, string> = {
+  SCHEDULED: '예약',
+  SENT: '발송완료',
+  FAILED: '실패',
+  CANCELED: '예약취소',
+}
 
 export default function PushNotificationPage() {
-  const [filter, setFilter] = useState('ALL')
+  const [notifications, setNotifications] = useState<AdminNotificationListItem[]>([])
+  const [selectedNotification, setSelectedNotification] = useState<AdminNotification | null>(null)
+  const [searchQuery, setSearchQuery] = useState('')
+  const [currentPage, setCurrentPage] = useState(0)
+  const [totalPages, setTotalPages] = useState(0)
+  const [totalElements, setTotalElements] = useState(0)
+  const [loading, setLoading] = useState(false)
+  const [detailLoading, setDetailLoading] = useState(false)
+  const [saving, setSaving] = useState(false)
+  const [errorMessage, setErrorMessage] = useState('')
+  const [modalMode, setModalMode] = useState<'create' | 'edit' | null>(null)
+  const [form, setForm] = useState<FormState>(emptyForm)
 
-  // Mock data
-  const events = [
-    { id: 'APP_EVT_0001', name: '출석 체크 이벤트' },
-    { id: 'APP_EVT_0002', name: '첫 구매 리워드 이벤트' },
-  ]
+  const filteredNotifications = useMemo(
+    () =>
+      notifications.filter(
+        (notification) =>
+          !searchQuery ||
+          notification.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
+          String(notification.id).includes(searchQuery),
+      ),
+    [notifications, searchQuery],
+  )
 
-  const pushes = [
-    {
-      id: 'PUSH_0001',
-      title: '출석 체크 이벤트 시작!',
-      body: '매일 출석하고 리워드 받아가세요',
-      appEventId: 'APP_EVT_0001',
-      scheduled: '2026-07-01 10:00',
-      status: '발송완료',
-    },
-    {
-      id: 'PUSH_0002',
-      title: '출석 체크 마감 D-3',
-      body: '아직 출석 안 하셨나요?',
-      appEventId: 'APP_EVT_0001',
-      scheduled: '2026-07-28 12:00',
-      status: '예약',
-    },
-    {
-      id: 'PUSH_0003',
-      title: '첫 구매하고 리워드 받기',
-      body: '첫 결제 시 즉시 적립',
-      appEventId: 'APP_EVT_0002',
-      scheduled: '2026-06-15 09:00',
-      status: '발송완료',
-    },
-  ]
+  const fetchNotifications = async (page = currentPage) => {
+    setLoading(true)
+    setErrorMessage('')
+    try {
+      const response = await getAdminNotifications(page)
+      if (response.isSuccess) {
+        setNotifications(response.result.content)
+        setCurrentPage(response.result.page)
+        setTotalPages(response.result.totalPages)
+        setTotalElements(response.result.totalElements)
+      }
+    } catch {
+      setErrorMessage('푸시 알림 목록을 불러오지 못했습니다.')
+    } finally {
+      setLoading(false)
+    }
+  }
 
-  const filteredPushes = filter === 'ALL' ? pushes : pushes.filter((p) => p.appEventId === filter)
+  useEffect(() => {
+    void fetchNotifications(currentPage)
+  }, [currentPage])
 
-  const statusClass = (s: string) => ({ '발송완료': 'g', '예약': 'a', '대기': 'n' }[s] || 'n')
+  const handleSelectNotification = async (adminNotificationId: number) => {
+    if (selectedNotification?.id === adminNotificationId) {
+      setSelectedNotification(null)
+      return
+    }
 
-  const getEventName = (id: string) => events.find((e) => e.id === id)?.name || '(삭제됨)'
+    setDetailLoading(true)
+    setErrorMessage('')
+    try {
+      const response = await getAdminNotification(adminNotificationId)
+      if (response.isSuccess) {
+        setSelectedNotification(response.result)
+      }
+    } catch {
+      setErrorMessage('푸시 알림 상세를 불러오지 못했습니다.')
+    } finally {
+      setDetailLoading(false)
+    }
+  }
+
+  const openCreateModal = () => {
+    setForm(emptyForm)
+    setModalMode('create')
+  }
+
+  const openEditModal = async (notificationId: number) => {
+    const detail =
+      selectedNotification?.id === notificationId
+        ? selectedNotification
+        : (await getAdminNotification(notificationId)).result
+
+    setSelectedNotification(detail)
+    setForm({
+      title: detail.title,
+      content: detail.content,
+      notificationType: detail.notificationType,
+      targetAudience: detail.targetAudience,
+      sendType: detail.sendType,
+      scheduledAt: detail.scheduledAt ? toDatetimeLocalValue(detail.scheduledAt) : '',
+      targetType: detail.targetType,
+      eventTargetId: detail.eventTargetId ? String(detail.eventTargetId) : '',
+      targetLink: detail.targetLink ?? '',
+    })
+    setModalMode('edit')
+  }
+
+  const closeModal = () => {
+    if (saving) return
+    setModalMode(null)
+    setForm(emptyForm)
+  }
+
+  const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault()
+
+    if (!form.title.trim() || !form.content.trim()) {
+      alert('제목과 내용을 입력해주세요.')
+      return
+    }
+
+    if (form.sendType === 'SCHEDULED' && !form.scheduledAt) {
+      alert('예약 발송 일시를 입력해주세요.')
+      return
+    }
+
+    if (form.targetType === 'APP_EVENT' && !form.eventTargetId.trim()) {
+      alert('앱 이벤트 ID를 입력해주세요.')
+      return
+    }
+
+    const payload: AdminNotificationPayload = {
+      title: form.title.trim(),
+      content: form.content.trim(),
+      notificationType: form.notificationType,
+      targetAudience: form.targetAudience,
+      sendType: form.sendType,
+      scheduledAt: form.sendType === 'SCHEDULED' ? formatScheduledAt(form.scheduledAt) : null,
+      targetType: form.targetType,
+      eventTargetId: form.targetType === 'APP_EVENT' ? Number(form.eventTargetId) : null,
+      targetLink: form.targetLink.trim() || null,
+    }
+
+    setSaving(true)
+    try {
+      if (modalMode === 'edit' && selectedNotification) {
+        const response = await updateAdminNotification(selectedNotification.id, payload)
+        if (response.isSuccess) {
+          setSelectedNotification(response.result)
+        }
+      } else {
+        const response = await createAdminNotification(payload)
+        if (response.isSuccess) {
+          const detail = await getAdminNotification(response.result)
+          if (detail.isSuccess) {
+            setSelectedNotification(detail.result)
+          }
+          setCurrentPage(0)
+        }
+      }
+
+      setModalMode(null)
+      setForm(emptyForm)
+      await fetchNotifications(modalMode === 'create' ? 0 : currentPage)
+    } catch {
+      alert(modalMode === 'edit' ? '푸시 알림 수정에 실패했습니다.' : '푸시 알림 생성에 실패했습니다.')
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  const handleBroadcast = async (notification: AdminNotificationListItem) => {
+    const confirmed = window.confirm(`'${notification.title}' 알림을 실패 대상에게 재발송할까요?`)
+    if (!confirmed) return
+
+    try {
+      const response = await broadcastAdminNotification(notification.id)
+      if (response.isSuccess) {
+        alert('재발송 요청이 완료되었습니다.')
+        await fetchNotifications(currentPage)
+      }
+    } catch {
+      alert('푸시 알림 재발송에 실패했습니다.')
+    }
+  }
+
+  const handleCancel = async (notification: AdminNotificationListItem) => {
+    const confirmed = window.confirm(`'${notification.title}' 예약을 취소할까요?`)
+    if (!confirmed) return
+
+    try {
+      const response = await cancelAdminNotification(notification.id)
+      if (response.isSuccess) {
+        setSelectedNotification(response.result)
+        await fetchNotifications(currentPage)
+      }
+    } catch {
+      alert('푸시 알림 예약 취소에 실패했습니다.')
+    }
+  }
+
+  const renderPagination = () => {
+    if (totalPages <= 1) return null
+
+    return (
+      <div className="pagination">
+        <button
+          className="pagination-button"
+          onClick={() => setCurrentPage((page) => Math.max(0, page - 1))}
+          disabled={currentPage === 0}
+          type="button"
+        >
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <path d="m15 18-6-6 6-6" />
+          </svg>
+        </button>
+
+        {Array.from({ length: totalPages }).map((_, index) => (
+          <button
+            key={index}
+            className={`pagination-button ${currentPage === index ? 'active' : ''}`}
+            onClick={() => setCurrentPage(index)}
+            type="button"
+          >
+            {index + 1}
+          </button>
+        ))}
+
+        <button
+          className="pagination-button"
+          onClick={() => setCurrentPage((page) => Math.min(totalPages - 1, page + 1))}
+          disabled={currentPage >= totalPages - 1}
+          type="button"
+        >
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <path d="m9 18 6-6-6-6" />
+          </svg>
+        </button>
+      </div>
+    )
+  }
 
   return (
     <div className="event-page-container">
@@ -50,97 +298,313 @@ export default function PushNotificationPage() {
         <div>
           <h1>푸시 알림 관리</h1>
           <p className="page-sub">
-            각 푸시 알림이 어떤 appEventId에 연결되는지 확인합니다. 클릭 시 targetType=APP_EVENT, targetId=appEventId 로 이벤트 상세 페이지로 이동합니다. ID 칩을 누르면 해당 이벤트로 이동합니다.
+            운영자 알림을 생성하고 즉시 발송 또는 예약 발송 상태를 관리합니다.
           </p>
         </div>
+        <button className="btn-primary" onClick={openCreateModal} type="button">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round">
+            <path d="M5 12h14M12 5v14" />
+          </svg>
+          새 알림 만들기
+        </button>
       </div>
 
       <div className="toolbar">
-        <div className="select-wrap">
-          <select value={filter} onChange={(e) => setFilter(e.target.value)}>
-            <option value="ALL">전체 이벤트</option>
-            {events.map((e) => (
-              <option key={e.id} value={e.id}>
-                {e.id} · {e.name}
-              </option>
-            ))}
-          </select>
+        <div className="search-box">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <circle cx="11" cy="11" r="7" />
+            <path d="m21 21-4.3-4.3" />
+          </svg>
+          <input
+            type="text"
+            placeholder="알림 제목 · ID 검색"
+            value={searchQuery}
+            onChange={(event) => setSearchQuery(event.target.value)}
+          />
         </div>
-        {filter === 'ALL' ? (
-          <span className="filter-note">전체 {filteredPushes.length}건</span>
-        ) : (
-          <span className="filter-note">
-            <b>{filter}</b> 에 연결된 {filteredPushes.length}건
-          </span>
-        )}
+        <span className="filter-note">전체 {searchQuery ? filteredNotifications.length : totalElements}건</span>
       </div>
 
-      {filteredPushes.length > 0 ? (
-        <div className="event-table-panel">
-          <table className="event-table">
-            <thead>
+      {errorMessage ? <p className="login-message">{errorMessage}</p> : null}
+
+      <div className="event-table-panel">
+        <table className="event-table">
+          <thead>
+            <tr>
+              <th>알림 ID</th>
+              <th>제목</th>
+              <th>유형</th>
+              <th>대상</th>
+              <th>발송 방식</th>
+              <th>발송 일시</th>
+              <th>상태</th>
+              <th>작업</th>
+            </tr>
+          </thead>
+          <tbody>
+            {loading ? (
               <tr>
-                <th>Push ID</th>
-                <th>내용</th>
-                <th>연결 이벤트</th>
-                <th>Payload</th>
-                <th>발송 예약</th>
-                <th>상태</th>
+                <td colSpan={8}>로딩 중...</td>
               </tr>
-            </thead>
-            <tbody>
-              {filteredPushes.map((p) => (
-                <tr key={p.id} className="event-row">
-                  <td>
-                    <span className="target-mono">
-                      <b>{p.id}</b>
-                    </span>
-                  </td>
-                  <td>
-                    <div className="ev-name" style={{ fontSize: '13.5px' }}>
-                      {p.title}
-                    </div>
-                    <div className="ev-desc">{p.body}</div>
-                  </td>
-                  <td>
-                    <div className="link-ev">
-                      <span className="id-chip">
-                        <span className="dot"></span>
-                        {p.appEventId}
-                      </span>
-                      <span className="ev-lite">{getEventName(p.appEventId)}</span>
-                    </div>
-                  </td>
-                  <td>
-                    <span className="target-mono">
-                      targetType=<b>APP_EVENT</b>
-                      <br />
-                      targetId=<b>{p.appEventId}</b>
-                    </span>
-                  </td>
-                  <td className="period">{p.scheduled}</td>
-                  <td>
-                    <span className={`badge ${statusClass(p.status)}`}>
-                      <span className="bdot"></span>
-                      {p.status}
-                    </span>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+            ) : filteredNotifications.length === 0 ? (
+              <tr>
+                <td colSpan={8}>등록된 푸시 알림이 없습니다.</td>
+              </tr>
+            ) : (
+              filteredNotifications.map((notification) => {
+                const isOpen = selectedNotification?.id === notification.id
+
+                return (
+                  <Fragment key={notification.id}>
+                    <tr
+                      className={`event-row ${isOpen ? 'open' : ''}`}
+                      onClick={() => void handleSelectNotification(notification.id)}
+                    >
+                      <td>
+                        <span className="id-chip">
+                          <span className="dot"></span>
+                          {notification.id}
+                        </span>
+                      </td>
+                      <td>
+                        <div className="ev-name">{notification.title}</div>
+                      </td>
+                      <td>{notificationTypeLabels[notification.notificationType] ?? notification.notificationType}</td>
+                      <td>{notification.targetAudience}</td>
+                      <td>{sendTypeLabels[notification.sendType] ?? notification.sendType}</td>
+                      <td className="period">
+                        {notification.scheduledAt ? formatDateTime(notification.scheduledAt) : '즉시'}
+                      </td>
+                      <td>
+                        <span className={`badge ${statusClass(notification.status)}`}>
+                          {statusLabels[notification.status] ?? notification.status}
+                        </span>
+                      </td>
+                      <td>
+                        <div className="action-buttons" onClick={(clickEvent) => clickEvent.stopPropagation()}>
+                          <button
+                            className="btn-approve"
+                            onClick={() => void openEditModal(notification.id)}
+                            disabled={notification.status !== 'SCHEDULED'}
+                            type="button"
+                          >
+                            수정
+                          </button>
+                          <button
+                            className="btn-reject"
+                            onClick={() => void handleCancel(notification)}
+                            disabled={notification.status !== 'SCHEDULED'}
+                            type="button"
+                          >
+                            예약 취소
+                          </button>
+                          <button
+                            className="btn-approve"
+                            onClick={() => void handleBroadcast(notification)}
+                            disabled={!notification.rebroadcastable}
+                            type="button"
+                          >
+                            재발송
+                          </button>
+                        </div>
+                      </td>
+                    </tr>
+                    {isOpen && selectedNotification ? (
+                      <tr className="detail-row">
+                        <td colSpan={8}>
+                          <div className="report-detail-panel">
+                            {detailLoading ? (
+                              <div>상세 정보를 불러오는 중...</div>
+                            ) : (
+                              <>
+                                <DetailRow label="제목" value={selectedNotification.title} />
+                                <DetailRow label="내용" value={selectedNotification.content} />
+                                <DetailRow label="알림 유형" value={notificationTypeLabels[selectedNotification.notificationType] ?? selectedNotification.notificationType} />
+                                <DetailRow label="발송 대상" value={selectedNotification.targetAudience} />
+                                <DetailRow label="발송 방식" value={sendTypeLabels[selectedNotification.sendType] ?? selectedNotification.sendType} />
+                                <DetailRow label="예약 일시" value={selectedNotification.scheduledAt ? formatDateTime(selectedNotification.scheduledAt) : '즉시'} />
+                                <DetailRow label="타겟 유형" value={targetTypeLabels[selectedNotification.targetType] ?? selectedNotification.targetType} />
+                                <DetailRow label="이벤트 타겟 ID" value={selectedNotification.eventTargetId ? String(selectedNotification.eventTargetId) : '-'} />
+                                <DetailRow label="타겟 링크" value={selectedNotification.targetLink || '-'} />
+                                <DetailRow label="생성일시" value={formatDateTime(selectedNotification.createdAt)} />
+                                <DetailRow label="수정일시" value={formatDateTime(selectedNotification.updatedAt)} />
+                              </>
+                            )}
+                          </div>
+                        </td>
+                      </tr>
+                    ) : null}
+                  </Fragment>
+                )
+              })
+            )}
+          </tbody>
+        </table>
+      </div>
+
+      {renderPagination()}
+
+      {modalMode ? (
+        <div className="modal-overlay" onClick={closeModal}>
+          <form className="modal-container" onClick={(event) => event.stopPropagation()} onSubmit={handleSubmit}>
+            <div className="modal-header">
+              <h2>{modalMode === 'edit' ? '푸시 알림 수정' : '새 알림 만들기'}</h2>
+              <p>알림 내용과 발송 방식, 이동 타겟을 입력합니다.</p>
+            </div>
+
+            <div className="modal-body">
+              <label className="field">
+                <span>알림 제목</span>
+                <input
+                  value={form.title}
+                  onChange={(event) => setForm((current) => ({ ...current, title: event.target.value }))}
+                />
+              </label>
+              <label className="field">
+                <span>알림 내용</span>
+                <input
+                  value={form.content}
+                  onChange={(event) => setForm((current) => ({ ...current, content: event.target.value }))}
+                />
+              </label>
+              <label className="field">
+                <span>알림 유형</span>
+                <select
+                  value={form.notificationType}
+                  onChange={(event) =>
+                    setForm((current) => ({ ...current, notificationType: event.target.value as NotificationType }))
+                  }
+                >
+                  <option value="MARKETING">마케팅</option>
+                  <option value="NOTICE">공지</option>
+                </select>
+              </label>
+              <label className="field">
+                <span>발송 대상</span>
+                <select
+                  value={form.targetAudience}
+                  onChange={(event) =>
+                    setForm((current) => ({ ...current, targetAudience: event.target.value as TargetAudience }))
+                  }
+                >
+                  <option value="ALL">전체</option>
+                </select>
+              </label>
+              <label className="field">
+                <span>발송 방식</span>
+                <select
+                  value={form.sendType}
+                  onChange={(event) =>
+                    setForm((current) => ({
+                      ...current,
+                      sendType: event.target.value as SendType,
+                      scheduledAt: event.target.value === 'IMMEDIATE' ? '' : current.scheduledAt,
+                    }))
+                  }
+                >
+                  <option value="IMMEDIATE">즉시 발송</option>
+                  <option value="SCHEDULED">예약 발송</option>
+                </select>
+              </label>
+              {form.sendType === 'SCHEDULED' ? (
+                <label className="field">
+                  <span>예약 발송 일시</span>
+                  <input
+                    type="datetime-local"
+                    value={form.scheduledAt}
+                    onChange={(event) => setForm((current) => ({ ...current, scheduledAt: event.target.value }))}
+                  />
+                </label>
+              ) : null}
+              <label className="field">
+                <span>타겟 유형</span>
+                <select
+                  value={form.targetType}
+                  onChange={(event) =>
+                    setForm((current) => ({
+                      ...current,
+                      targetType: event.target.value as NotificationTargetType,
+                      eventTargetId: event.target.value === 'NONE' ? '' : current.eventTargetId,
+                    }))
+                  }
+                >
+                  <option value="NONE">없음</option>
+                  <option value="APP_EVENT">앱 이벤트</option>
+                </select>
+              </label>
+              {form.targetType === 'APP_EVENT' ? (
+                <label className="field">
+                  <span>앱 이벤트 ID</span>
+                  <input
+                    type="number"
+                    value={form.eventTargetId}
+                    onChange={(event) => setForm((current) => ({ ...current, eventTargetId: event.target.value }))}
+                  />
+                </label>
+              ) : null}
+              <label className="field">
+                <span>타겟 링크</span>
+                <input
+                  value={form.targetLink}
+                  onChange={(event) => setForm((current) => ({ ...current, targetLink: event.target.value }))}
+                  placeholder="https://..."
+                />
+              </label>
+            </div>
+
+            <div className="modal-footer">
+              <button className="btn-modal-cancel" onClick={closeModal} disabled={saving} type="button">
+                취소
+              </button>
+              <button className="btn-modal-confirm" disabled={saving} type="submit">
+                {saving ? '저장 중...' : modalMode === 'edit' ? '수정 완료' : '알림 생성'}
+              </button>
+            </div>
+          </form>
         </div>
-      ) : (
-        <div className="event-table-panel">
-          <div className="empty-state">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">
-              <path d="M3 7a9 3 0 0 0 18 0M3 7a9 3 0 0 1 18 0M3 7v10a9 3 0 0 0 18 0V7" />
-            </svg>
-            <h3>연결된 푸시 알림이 없습니다</h3>
-            <p>필터를 변경하거나 이벤트 홍보 수단에 해당 채널을 추가해 보세요.</p>
-          </div>
-        </div>
-      )}
+      ) : null}
     </div>
   )
+}
+
+function DetailRow({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="report-detail-row">
+      <span className="detail-label">{label}</span>
+      <span className="detail-value">{value}</span>
+    </div>
+  )
+}
+
+function formatDateTime(value: string) {
+  return new Date(value).toLocaleString('ko-KR')
+}
+
+function toDatetimeLocalValue(value: string) {
+  const date = new Date(value)
+  const offset = date.getTimezoneOffset() * 60_000
+  return new Date(date.getTime() - offset).toISOString().slice(0, 16)
+}
+
+function formatScheduledAt(value: string) {
+  const date = new Date(value)
+  const year = date.getFullYear()
+  const month = String(date.getMonth() + 1).padStart(2, '0')
+  const day = String(date.getDate()).padStart(2, '0')
+  const hours = String(date.getHours()).padStart(2, '0')
+  const minutes = String(date.getMinutes()).padStart(2, '0')
+  return `${year}-${month}-${day} ${hours}:${minutes}`
+}
+
+function statusClass(status: NotificationStatus) {
+  switch (status) {
+    case 'SENT':
+      return 'g'
+    case 'FAILED':
+    case 'CANCELED':
+      return 'a'
+    case 'SCHEDULED':
+    default:
+      return 'n'
+  }
 }
