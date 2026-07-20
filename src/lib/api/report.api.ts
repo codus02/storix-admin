@@ -13,7 +13,7 @@ export type ReportListItem = {
   status: ReportStatus
   reportCount: number
   processedByAdminId?: number
-  processAction?: ProcessAction
+  processActions?: ProcessAction[]
   createdAt: string
   processedAt?: string
   reopened: boolean
@@ -44,7 +44,7 @@ export type ReportDetail = {
   status: ReportStatus
   processedByAdminId?: number
   processMemo?: string
-  processAction?: ProcessAction
+  processActions?: ProcessAction[]
   receivedAt: string
   processedAt?: string
   reopened: boolean
@@ -95,7 +95,7 @@ export type ReportDetailResponse = {
 
 export type ProcessReportRequest = {
   status: ReportStatus
-  processAction?: ProcessAction
+  processActions?: ProcessAction[]
   processMemo?: string
 }
 
@@ -103,7 +103,7 @@ export type ProcessReportResponse = {
   isSuccess: boolean
   code: string
   message: string
-  result: {}
+  result: object
   timestamp: string
 }
 
@@ -116,8 +116,10 @@ export const getReportList = async (params?: {
   startAt?: string
   endAt?: string
   reportedUserId?: number
+  reportedUserKeyword?: string
   page?: number
   size?: number
+  sort?: string[]
 }): Promise<ReportListResponse> => {
   const response = await apiClient.get('/api/v1/admin/reports', { params })
   return response.data

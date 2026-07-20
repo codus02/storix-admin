@@ -1,7 +1,16 @@
 'use client'
 
-import { useState, useEffect } from 'react'
-import { getReportList, getReportDetail, processReport, type ReportListItem, type ReportDetail, type TargetType, type ReportStatus, type ProcessAction } from '@/lib/api/report.api'
+import { FormEvent, useEffect, useState } from 'react'
+import {
+  getReportList,
+  getReportDetail,
+  processReport,
+  type ReportListItem,
+  type ReportDetail,
+  type TargetType,
+  type ReportStatus,
+  type ProcessAction,
+} from '@/lib/api/report.api'
 
 const targetTypeLabels: Record<TargetType, string> = {
   FEED: '피드',
@@ -29,6 +38,8 @@ export default function ReportPage() {
   const [targetTypeFilter, setTargetTypeFilter] = useState<TargetType | '전체'>('전체')
   const [dateFilter, setDateFilter] = useState('')
   const [statusFilter, setStatusFilter] = useState<ReportStatus | '전체'>('전체')
+  const [reportedUserKeyword, setReportedUserKeyword] = useState('')
+  const [appliedReportedUserKeyword, setAppliedReportedUserKeyword] = useState('')
   const [currentPage, setCurrentPage] = useState(0)
   const [showProcessModal, setShowProcessModal] = useState(false)
   const [selectedActions, setSelectedActions] = useState<ProcessAction[]>([])
@@ -37,6 +48,7 @@ export default function ReportPage() {
   const [totalPages, setTotalPages] = useState(0)
   const [totalElements, setTotalElements] = useState(0)
   const [loading, setLoading] = useState(false)
+  const [errorMessage, setErrorMessage] = useState('')
 
   const targetTypes: Array<TargetType | '전체'> = ['전체', 'FEED', 'FEED_REPLY', 'REVIEW', 'TOPIC_ROOM', 'CHAT']
   const statuses: Array<ReportStatus | '전체'> = ['전체', 'RECEIVED', 'REJECTED', 'COMPLETED']
@@ -45,13 +57,17 @@ export default function ReportPage() {
   useEffect(() => {
     const fetchReports = async () => {
       setLoading(true)
+      setErrorMessage('')
       try {
-        const params: any = {
+        const params: Parameters<typeof getReportList>[0] = {
           page: currentPage,
           size: 10,
         }
         if (targetTypeFilter !== '전체') params.targetType = targetTypeFilter
         if (statusFilter !== '전체') params.status = statusFilter
+        if (appliedReportedUserKeyword.trim()) {
+          params.reportedUserKeyword = appliedReportedUserKeyword.trim()
+        }
         if (dateFilter) {
           params.startAt = `${dateFilter}T00:00:00`
           params.endAt = `${dateFilter}T23:59:59`
@@ -65,13 +81,14 @@ export default function ReportPage() {
         }
       } catch (error) {
         console.error('신고 목록 조회 실패:', error)
+        setErrorMessage('신고 목록을 불러오지 못했습니다.')
       } finally {
         setLoading(false)
       }
     }
 
     fetchReports()
-  }, [currentPage, targetTypeFilter, statusFilter, dateFilter])
+  }, [currentPage, targetTypeFilter, statusFilter, dateFilter, appliedReportedUserKeyword])
 
   // 신고 상세 조회
   useEffect(() => {
@@ -122,6 +139,7 @@ export default function ReportPage() {
 
       // 목록 새로고침
       setSelectedReportId(null)
+      setSelectedReportDetail(null)
       setCurrentPage(0)
     } catch (error) {
       console.error('신고 반려 실패:', error)
@@ -136,7 +154,21 @@ export default function ReportPage() {
   }
 
   const toggleAction = (action: ProcessAction) => {
-    setSelectedActions((prev) => (prev.includes(action) ? prev.filter((a) => a !== action) : [...prev, action]))
+    setSelectedActions((prev) => {
+      if (prev.includes(action)) {
+        return prev.filter((item) => item !== action)
+      }
+
+      if (action === 'ACCOUNT_SUSPENDED') {
+        return [...prev.filter((item) => item !== 'ACCOUNT_DELETED'), action]
+      }
+
+      if (action === 'ACCOUNT_DELETED') {
+        return [...prev.filter((item) => item !== 'ACCOUNT_SUSPENDED'), action]
+      }
+
+      return [...prev, action]
+    })
   }
 
   const handleProcessConfirm = async () => {
@@ -146,16 +178,16 @@ export default function ReportPage() {
     }
 
     try {
-      // 여러 액션 중 첫 번째만 전송 (API가 단일 액션만 지원)
       await processReport(selectedReportId, {
         status: 'COMPLETED',
-        processAction: selectedActions[0],
+        processActions: selectedActions,
         processMemo: processComment || undefined,
       })
 
       setShowProcessModal(false)
       // 목록 새로고침
       setSelectedReportId(null)
+      setSelectedReportDetail(null)
       setCurrentPage(0)
     } catch (error) {
       console.error('신고 처리 실패:', error)
@@ -164,20 +196,23 @@ export default function ReportPage() {
   }
 
   const renderPagination = () => {
+    if (totalPages <= 1) return null
+
     const pages = []
     const maxVisiblePages = 5
+    const displayPage = currentPage + 1
 
     if (totalPages <= maxVisiblePages) {
       for (let i = 1; i <= totalPages; i++) {
         pages.push(i)
       }
     } else {
-      if (currentPage <= 3) {
+      if (displayPage <= 3) {
         pages.push(1, 2, 3, 4, -1, totalPages)
-      } else if (currentPage >= totalPages - 2) {
+      } else if (displayPage >= totalPages - 2) {
         pages.push(1, -1, totalPages - 3, totalPages - 2, totalPages - 1, totalPages)
       } else {
-        pages.push(1, -1, currentPage - 1, currentPage, currentPage + 1, -2, totalPages)
+        pages.push(1, -1, displayPage - 1, displayPage, displayPage + 1, -2, totalPages)
       }
     }
 
@@ -186,7 +221,8 @@ export default function ReportPage() {
         <button
           className="pagination-button"
           onClick={() => handlePageChange(currentPage - 1)}
-          disabled={currentPage === 1}
+          disabled={currentPage === 0}
+          type="button"
         >
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
             <path d="m15 18-6-6 6-6" />
@@ -200,8 +236,9 @@ export default function ReportPage() {
           return (
             <button
               key={page}
-              className={`pagination-button ${currentPage === page ? 'active' : ''}`}
-              onClick={() => handlePageChange(page)}
+              className={`pagination-button ${displayPage === page ? 'active' : ''}`}
+              onClick={() => handlePageChange(page - 1)}
+              type="button"
             >
               {page}
             </button>
@@ -211,7 +248,8 @@ export default function ReportPage() {
         <button
           className="pagination-button"
           onClick={() => handlePageChange(currentPage + 1)}
-          disabled={currentPage === totalPages}
+          disabled={currentPage >= totalPages - 1}
+          type="button"
         >
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
             <path d="m9 18 6-6-6-6" />
@@ -219,6 +257,12 @@ export default function ReportPage() {
         </button>
       </div>
     )
+  }
+
+  const handleSearchSubmit = (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault()
+    setCurrentPage(0)
+    setAppliedReportedUserKeyword(reportedUserKeyword)
   }
 
   return (
@@ -232,7 +276,20 @@ export default function ReportPage() {
             </div>
           </div>
 
-          <div className="toolbar">
+          <form className="toolbar" onSubmit={handleSearchSubmit}>
+            <div className="search-box">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <circle cx="11" cy="11" r="7" />
+                <path d="m21 21-4.3-4.3" />
+              </svg>
+              <input
+                type="text"
+                placeholder="피신고자 닉네임 검색"
+                value={reportedUserKeyword}
+                onChange={(event) => setReportedUserKeyword(event.target.value)}
+              />
+            </div>
+
             <div className="select-wrap">
               <select value={targetTypeFilter} onChange={(e) => setTargetTypeFilter(e.target.value as TargetType | '전체')}>
                 <option value="전체">신고 유형</option>
@@ -265,8 +322,27 @@ export default function ReportPage() {
               </select>
             </div>
 
+            <button className="btn-approve" type="submit">
+              검색
+            </button>
+            {appliedReportedUserKeyword ? (
+              <button
+                className="btn-reject"
+                onClick={() => {
+                  setReportedUserKeyword('')
+                  setAppliedReportedUserKeyword('')
+                  setCurrentPage(0)
+                }}
+                type="button"
+              >
+                초기화
+              </button>
+            ) : null}
+
             <span className="filter-note">전체 {totalElements}건</span>
-          </div>
+          </form>
+
+          {errorMessage ? <p className="login-message">{errorMessage}</p> : null}
 
           {loading ? (
             <div className="event-table-panel">
@@ -287,7 +363,11 @@ export default function ReportPage() {
                     </tr>
                   </thead>
                   <tbody>
-                    {reports.map((report) => (
+                    {reports.length === 0 ? (
+                      <tr>
+                        <td colSpan={6}>신고 내역이 없습니다.</td>
+                      </tr>
+                    ) : reports.map((report) => (
                       <tr key={report.reportCaseId} className="event-row" onClick={() => setSelectedReportId(report.reportCaseId)}>
                         <td>{report.reportCaseId}</td>
                         <td>{targetTypeLabels[report.targetType]}</td>
@@ -306,7 +386,7 @@ export default function ReportPage() {
                 </table>
               </div>
 
-              {totalPages > 1 && renderPagination()}
+              {renderPagination()}
             </>
           )}
         </>
@@ -362,15 +442,44 @@ export default function ReportPage() {
               </div>
             </div>
 
-            {selectedReportDetail.processAction && (
+            {selectedReportDetail.processActions?.length ? (
               <div className="report-detail-row">
                 <span className="detail-label">조치 및 코멘트</span>
                 <span className="detail-value" style={{ color: '#dc2626' }}>
-                  {actionLabels[selectedReportDetail.processAction]}
+                  {(selectedReportDetail.processActions ?? []).map((action) => actionLabels[action]).join(', ')}
                   {selectedReportDetail.processMemo && ` / ${selectedReportDetail.processMemo}`}
                 </span>
               </div>
-            )}
+            ) : null}
+
+            {selectedReportDetail.reports.length > 0 ? (
+              <div className="report-content-section">
+                <h3>묶인 신고 목록</h3>
+                <div className="report-content-box">
+                  {selectedReportDetail.reports.map((report) => (
+                    <p key={report.reportId} className="content-meta">
+                      #{report.reportId} {report.reporterNickName} · {report.reason}
+                      {report.otherReason ? ` / ${report.otherReason}` : ''} · {new Date(report.reportedAt).toLocaleString('ko-KR')}
+                    </p>
+                  ))}
+                </div>
+              </div>
+            ) : null}
+
+            {selectedReportDetail.reportedContent.chatMessages?.length ? (
+              <div className="report-content-section">
+                <h3>채팅 신고 메시지</h3>
+                <div className="report-content-box">
+                  {selectedReportDetail.reportedContent.chatMessages.map((message) => (
+                    <p key={message.messageId} className="content-text">
+                      {message.senderNickName} · {message.messageType} · {new Date(message.createdAt).toLocaleString('ko-KR')}
+                      <br />
+                      {message.message}
+                    </p>
+                  ))}
+                </div>
+              </div>
+            ) : null}
 
             <div className="report-actions">
               <button className="btn-back" onClick={() => setSelectedReportId(null)}>
@@ -400,7 +509,7 @@ export default function ReportPage() {
           <div className="modal-container" onClick={(e) => e.stopPropagation()}>
             <div className="modal-header">
               <h2>신고 처리</h2>
-              <p>어떤 항목을 할까 적용할 수 있습니다.</p>
+              <p>복수 액션을 적용할 수 있습니다. 계정 정지와 계정 삭제는 동시에 적용할 수 없습니다.</p>
             </div>
 
             <div className="modal-body">
@@ -445,4 +554,3 @@ export default function ReportPage() {
     </div>
   )
 }
-
