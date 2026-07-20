@@ -1,7 +1,7 @@
 import axios from 'axios'
 
 export const apiClient = axios.create({
-  baseURL: process.env.NEXT_PUBLIC_API_URL || 'https://api.storix.kr',
+  baseURL: '',
   timeout: 10_000,
   headers: {
     'Content-Type': 'application/json',
@@ -43,7 +43,7 @@ apiClient.interceptors.response.use(
       try {
         // 리프레시 토큰은 쿠키에 저장되어 있으므로 자동으로 전송됨
         const response = await axios.post(
-          `${process.env.NEXT_PUBLIC_API_URL || 'https://api.storix.kr'}/api/v1/auth/tokens/refresh`,
+          '/api/v1/auth/tokens/refresh',
           {},
           { withCredentials: true }
         )
