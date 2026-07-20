@@ -1,0 +1,126 @@
+'use client'
+
+import Link from 'next/link'
+import { usePathname } from 'next/navigation'
+import { useState } from 'react'
+
+type MenuItem = {
+  href?: string
+  label: string
+  icon: string
+  children?: Array<{ href: string; label: string }>
+}
+
+const menuItems: MenuItem[] = [
+  {
+    label: '이벤트 관리',
+    icon: 'E',
+    children: [
+      { href: '/event/in-app', label: '인앱 이벤트 관리' },
+      { href: '/event/push', label: '푸시 알림 관리' },
+      { href: '/event/popup', label: '팝업 관리' },
+      { href: '/event/banner', label: '배너 관리' },
+    ],
+  },
+  { href: '/report', label: '신고 관리', icon: 'R' },
+  { href: '/user', label: '유저 관리', icon: 'U' },
+]
+
+export function Sidebar() {
+  const pathname = usePathname()
+  const [expandedMenus, setExpandedMenus] = useState<Record<string, boolean>>({
+    '이벤트 관리': true, // 기본적으로 이벤트 관리는 열려있음
+  })
+
+  const toggleMenu = (label: string) => {
+    setExpandedMenus((prev) => ({
+      ...prev,
+      [label]: !prev[label],
+    }))
+  }
+
+  return (
+    <aside className="admin-sidebar">
+      <div>
+        <div className="sidebar-title">
+          <img src="/storix-logo-pink.svg" alt="" aria-hidden="true" />
+          <span>전체 메뉴</span>
+        </div>
+
+        <nav className="sidebar-nav" aria-label="관리자 메뉴">
+          {menuItems.map((item) => {
+            const hasChildren = item.children && item.children.length > 0
+            const isExpanded = expandedMenus[item.label]
+            const isActive = item.href ? pathname === item.href : false
+            const hasActiveChild = hasChildren
+              ? item.children!.some((child) => pathname === child.href)
+              : false
+
+            return (
+              <div key={item.label} className="sidebar-menu-item">
+                {hasChildren ? (
+                  <>
+                    <button
+                      className={`sidebar-menu-button ${hasActiveChild ? 'has-active-child' : ''}`}
+                      onClick={() => toggleMenu(item.label)}
+                    >
+                      <span aria-hidden="true">{item.icon}</span>
+                      {item.label}
+                      <svg
+                        className={`menu-arrow ${isExpanded ? 'expanded' : ''}`}
+                        width="12"
+                        height="12"
+                        viewBox="0 0 12 12"
+                        fill="none"
+                      >
+                        <path
+                          d="M3 4.5L6 7.5L9 4.5"
+                          stroke="currentColor"
+                          strokeWidth="1.5"
+                          strokeLinecap="round"
+                          strokeLinejoin="round"
+                        />
+                      </svg>
+                    </button>
+                    {isExpanded && (
+                      <div className="sidebar-submenu">
+                        {item.children!.map((child) => {
+                          const isChildActive = pathname === child.href
+                          return (
+                            <Link
+                              key={child.href}
+                              className={`sidebar-submenu-link ${isChildActive ? 'active' : ''}`}
+                              href={child.href}
+                            >
+                              {child.label}
+                            </Link>
+                          )
+                        })}
+                      </div>
+                    )}
+                  </>
+                ) : (
+                  <Link
+                    className={`sidebar-menu-link ${isActive ? 'active' : ''}`}
+                    href={item.href!}
+                  >
+                    <span aria-hidden="true">{item.icon}</span>
+                    {item.label}
+                  </Link>
+                )}
+              </div>
+            )
+          })}
+        </nav>
+      </div>
+
+      <div className="sidebar-profile">
+        <img src="/storix-logo-pink.svg" alt="" aria-hidden="true" />
+        <div>
+          <strong>Kaya Heo</strong>
+          <span>contact@storix.kr</span>
+        </div>
+      </div>
+    </aside>
+  )
+}
