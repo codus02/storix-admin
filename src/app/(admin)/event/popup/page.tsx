@@ -1,6 +1,7 @@
 'use client'
 
 import { FormEvent, Fragment, useEffect, useMemo, useState } from 'react'
+import { AxiosError } from 'axios'
 import {
   cancelAdminPopup,
   createAdminPopup,
@@ -38,6 +39,12 @@ const emptyForm: FormState = {
   file: null,
 }
 
+type ApiErrorBody = {
+  code?: string
+  message?: string
+  fieldErrors?: unknown
+}
+
 const statusLabels: Record<PopupStatus, string> = {
   SCHEDULED: '예약',
   ACTIVE: '노출중',
@@ -51,6 +58,12 @@ const targetTypeLabels: Record<PopupContentTargetType, string> = {
 
 const exposurePolicyLabels: Record<PopupExposurePolicy, string> = {
   ALWAYS_DURING_PERIOD: '기간 내 항상 노출',
+}
+
+const normalizeUrl = (value: string) => {
+  const trimmed = value.trim()
+  if (!trimmed) return ''
+  return /^https?:\/\//i.test(trimmed) ? trimmed : `https://${trimmed}`
 }
 
 export default function PopupPage() {
@@ -157,15 +170,8 @@ export default function PopupPage() {
   const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault()
 
-    if (
-      !form.targetId.trim() ||
-      !form.popupTitle.trim() ||
-      !form.content.trim() ||
-      !form.ctaText.trim() ||
-      !form.displayStartAt ||
-      !form.displayEndAt
-    ) {
-      alert('타겟 ID, 제목, 내용, CTA, 노출 기간을 모두 입력해주세요.')
+    if (!form.popupTitle.trim() || !form.ctaText.trim() || !form.displayStartAt || !form.displayEndAt) {
+      alert('제목, 링크, 노출 기간을 모두 입력해주세요.')
       return
     }
 
@@ -175,36 +181,46 @@ export default function PopupPage() {
     }
 
     const payload: AdminPopupPayload = {
-      targetId: Number(form.targetId),
-      contentTargetType: form.contentTargetType,
-      exposurePolicy: form.exposurePolicy,
       popupTitle: form.popupTitle.trim(),
-      content: form.content.trim(),
-      ctaText: form.ctaText.trim(),
-      displayStartAt: toIsoString(form.displayStartAt),
-      displayEndAt: toIsoString(form.displayEndAt),
+      content: form.popupTitle.trim(),
+      ctaText: normalizeUrl(form.ctaText),
+      displayStartAt: toLocalDateTimeString(form.displayStartAt),
+      displayEndAt: toLocalDateTimeString(form.displayEndAt),
     }
 
     setSaving(true)
     try {
       if (modalMode === 'edit' && selectedPopup) {
         const response = await updateAdminPopup(selectedPopup.id, payload, form.file)
-        if (response.isSuccess) {
-          setSelectedPopup(response.result)
+        if (!response.isSuccess) {
+          throw new Error(response.message || '팝업 수정에 실패했습니다.')
         }
+        setSelectedPopup(response.result)
       } else if (form.file) {
         const response = await createAdminPopup(payload, form.file)
-        if (response.isSuccess) {
-          setSelectedPopup(response.result)
-          setCurrentPage(0)
+        if (!response.isSuccess) {
+          throw new Error(response.message || '팝업 생성에 실패했습니다.')
         }
+        setSelectedPopup(response.result)
+        setCurrentPage(0)
       }
 
       setModalMode(null)
       setForm(emptyForm)
       await fetchPopups(modalMode === 'create' ? 0 : currentPage)
-    } catch {
-      alert(modalMode === 'edit' ? '팝업 수정에 실패했습니다.' : '팝업 생성에 실패했습니다.')
+    } catch (error) {
+      const axiosError = error as AxiosError<ApiErrorBody>
+      const serverMessage = axiosError.response?.data?.message
+      console.error(modalMode === 'edit' ? '팝업 수정 실패:' : '팝업 생성 실패:', {
+        status: axiosError.response?.status,
+        code: axiosError.response?.data?.code,
+        message: serverMessage ?? (error instanceof Error ? error.message : undefined),
+        fieldErrors: axiosError.response?.data?.fieldErrors,
+        data: axiosError.response?.data,
+        payload,
+      })
+      console.table(axiosError.response?.data?.fieldErrors ?? [])
+      alert(serverMessage || (error instanceof Error ? error.message : modalMode === 'edit' ? '팝업 수정에 실패했습니다.' : '팝업 생성에 실패했습니다.'))
     } finally {
       setSaving(false)
     }
@@ -436,63 +452,43 @@ export default function PopupPage() {
           <form className="modal-container" onClick={(event) => event.stopPropagation()} onSubmit={handleSubmit}>
             <div className="modal-header">
               <h2>{modalMode === 'edit' ? '팝업 수정' : '새 팝업 만들기'}</h2>
-              <p>노출 대상, 기간, 문구와 이미지를 입력합니다.</p>
             </div>
 
             <div className="modal-body">
               <label className="field">
-                <span>연결 앱 이벤트 ID</span>
+                <span>제목</span>
                 <input
-                  type="number"
-                  value={form.targetId}
-                  onChange={(event) => setForm((current) => ({ ...current, targetId: event.target.value }))}
-                />
-              </label>
-              <label className="field">
-                <span>대상 유형</span>
-                <select
-                  value={form.contentTargetType}
-                  onChange={(event) =>
-                    setForm((current) => ({ ...current, contentTargetType: event.target.value as PopupContentTargetType }))
-                  }
-                >
-                  <option value="APP_EVENT">앱 이벤트</option>
-                </select>
-              </label>
-              <label className="field">
-                <span>노출 정책</span>
-                <select
-                  value={form.exposurePolicy}
-                  onChange={(event) =>
-                    setForm((current) => ({ ...current, exposurePolicy: event.target.value as PopupExposurePolicy }))
-                  }
-                >
-                  <option value="ALWAYS_DURING_PERIOD">기간 내 항상 노출</option>
-                </select>
-              </label>
-              <label className="field">
-                <span>팝업 제목</span>
-                <input
+                  placeholder="관리용 팝업 제목 입력"
                   value={form.popupTitle}
                   onChange={(event) => setForm((current) => ({ ...current, popupTitle: event.target.value }))}
                 />
               </label>
-              <label className="field">
-                <span>내용</span>
-                <input
-                  value={form.content}
-                  onChange={(event) => setForm((current) => ({ ...current, content: event.target.value }))}
-                />
+              <label className="field popup-image-field">
+                <span>이미지</span>
+                <div className="popup-upload-box">
+                  <input
+                    type="file"
+                    accept="image/*"
+                    onChange={(event) =>
+                      setForm((current) => ({ ...current, file: event.target.files?.[0] ?? null }))
+                    }
+                  />
+                  <div className="popup-upload-placeholder">
+                    <span>+</span>
+                    <small>{form.file ? form.file.name : '이미지 업로드 (drag & drop)'}</small>
+                  </div>
+                </div>
               </label>
               <label className="field">
-                <span>CTA 문구</span>
+                <span>링크</span>
                 <input
+                  placeholder="CTA 버튼 랜딩 링크 입력"
                   value={form.ctaText}
                   onChange={(event) => setForm((current) => ({ ...current, ctaText: event.target.value }))}
                 />
               </label>
               <label className="field">
-                <span>노출 시작</span>
+                <span>시작일</span>
                 <input
                   type="datetime-local"
                   value={form.displayStartAt}
@@ -500,21 +496,11 @@ export default function PopupPage() {
                 />
               </label>
               <label className="field">
-                <span>노출 종료</span>
+                <span>종료일</span>
                 <input
                   type="datetime-local"
                   value={form.displayEndAt}
                   onChange={(event) => setForm((current) => ({ ...current, displayEndAt: event.target.value }))}
-                />
-              </label>
-              <label className="field">
-                <span>{modalMode === 'edit' ? '이미지 변경' : '팝업 이미지'}</span>
-                <input
-                  type="file"
-                  accept="image/*"
-                  onChange={(event) =>
-                    setForm((current) => ({ ...current, file: event.target.files?.[0] ?? null }))
-                  }
                 />
               </label>
             </div>
@@ -553,8 +539,8 @@ function toDatetimeLocalValue(value: string) {
   return new Date(date.getTime() - offset).toISOString().slice(0, 16)
 }
 
-function toIsoString(value: string) {
-  return new Date(value).toISOString()
+function toLocalDateTimeString(value: string) {
+  return value.replace('T', ' ').slice(0, 16)
 }
 
 function statusClass(status: PopupStatus) {

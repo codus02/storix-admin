@@ -1,6 +1,6 @@
 'use client'
 
-import { FormEvent, Fragment, useEffect, useState } from 'react'
+import { FormEvent, useEffect, useState } from 'react'
 import {
   cancelAdminBanner,
   createAdminBanner,
@@ -32,14 +32,14 @@ const emptyForm: FormState = {
 }
 
 const statusLabels: Record<BannerStatus, string> = {
-  SCHEDULED: '예약',
+  SCHEDULED: '예약됨',
   ACTIVE: '노출중',
-  ENDED: '종료',
-  CANCELED: '강제 종료',
+  ENDED: '종료됨',
+  CANCELED: '종료됨',
 }
 
 const targetTypeLabels: Record<BannerContentTargetType, string> = {
-  APP_EVENT: '앱 이벤트',
+  APP_EVENT: '전체 유저',
 }
 
 export default function BannerPage() {
@@ -240,177 +240,131 @@ export default function BannerPage() {
     <div className="event-page-container">
       <div className="page-head">
         <div>
-          <h1>배너 관리</h1>
-          <p className="page-sub">
-            홈 탭 등에 노출되는 이벤트 배너를 생성하고 노출 기간과 이미지를 관리합니다.
-          </p>
+          <h1>이벤트 관리</h1>
+          <p className="page-sub">배너 관리</p>
         </div>
-        <button className="btn-primary" onClick={openCreateModal} type="button">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round">
-            <path d="M5 12h14M12 5v14" />
-          </svg>
-          새 배너 만들기
-        </button>
       </div>
-
-      <form className="toolbar" onSubmit={handleSearchSubmit}>
-        <div className="search-box">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-            <circle cx="11" cy="11" r="7" />
-            <path d="m21 21-4.3-4.3" />
-          </svg>
-          <input
-            type="text"
-            placeholder="배너명 검색"
-            value={searchQuery}
-            onChange={(event) => setSearchQuery(event.target.value)}
-          />
-        </div>
-        <button className="btn-approve" type="submit">
-          검색
-        </button>
-        {appliedKeyword ? (
-          <button
-            className="btn-reject"
-            onClick={() => {
-              setSearchQuery('')
-              setAppliedKeyword('')
-              setCurrentPage(0)
-            }}
-            type="button"
-          >
-            초기화
-          </button>
-        ) : null}
-        <span className="filter-note">전체 {totalElements}건</span>
-      </form>
 
       {errorMessage ? <p className="login-message">{errorMessage}</p> : null}
 
-      <div className="event-table-panel">
-        <table className="event-table">
-          <thead>
-            <tr>
-              <th>Banner ID</th>
-              <th>배너 · 이미지</th>
-              <th>연결 대상</th>
-              <th>노출 기간</th>
-              <th>상태</th>
-              <th>작업</th>
-            </tr>
-          </thead>
-          <tbody>
-            {loading ? (
-              <tr>
-                <td colSpan={6}>로딩 중...</td>
-              </tr>
-            ) : banners.length === 0 ? (
-              <tr>
-                <td colSpan={6}>등록된 배너가 없습니다.</td>
-              </tr>
-            ) : (
-              banners.map((banner) => {
-                const isOpen = selectedBanner?.id === banner.id
+      {selectedBanner ? (
+        <section className="banner-detail-card">
+          <button className="user-breadcrumb" onClick={() => setSelectedBanner(null)} type="button">
+            배너 관리 &gt; 상세
+          </button>
 
-                return (
-                  <Fragment key={banner.id}>
+          {detailLoading ? (
+            <p className="login-message">상세 정보를 불러오는 중...</p>
+          ) : (
+            <>
+              <div className="banner-detail-title-row">
+                <h2>{selectedBanner.bannerTitle}</h2>
+                <span className={`event-state-chip ${bannerStatusClass(selectedBanner.status)}`}>
+                  {statusLabels[selectedBanner.status] ?? selectedBanner.status}
+                </span>
+              </div>
+
+              <div className="banner-detail-info">
+                <span>이미지</span>
+                {selectedBanner.imageUrl ? (
+                  <img className="banner-detail-image" src={selectedBanner.imageUrl} alt="" />
+                ) : (
+                  <div className="banner-detail-image placeholder">BANNER</div>
+                )}
+
+                <span>노출 기간</span>
+                <strong>
+                  {formatDateRange(selectedBanner.displayStartAt, selectedBanner.displayEndAt)}
+                  <button
+                    className="banner-end-button"
+                    onClick={() => void handleCancelBanner(selectedBanner)}
+                    disabled={selectedBanner.status === 'ENDED' || selectedBanner.status === 'CANCELED'}
+                    type="button"
+                  >
+                    노출 종료
+                  </button>
+                </strong>
+
+                <span>링크</span>
+                <strong>{selectedBanner.targetId ? `www.html` : '-'}</strong>
+              </div>
+
+              <button className="dark-back-button" onClick={() => setSelectedBanner(null)} type="button">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="m15 18-6-6 6-6" />
+                </svg>
+                목록으로
+              </button>
+            </>
+          )}
+        </section>
+      ) : (
+        <>
+          <div className="event-table-panel banner-list-panel">
+            <div className="table-title-row banner-title-row">
+              <h2>배너 발송 목록</h2>
+              <button className="btn-primary compact" onClick={openCreateModal} type="button">
+                새 배너 만들기
+              </button>
+              <form className="banner-search-form" onSubmit={handleSearchSubmit}>
+                <input
+                  type="text"
+                  placeholder="검색"
+                  value={searchQuery}
+                  onChange={(event) => setSearchQuery(event.target.value)}
+                />
+                <button type="submit" aria-label="검색">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                    <circle cx="11" cy="11" r="7" />
+                    <path d="m21 21-4.3-4.3" />
+                  </svg>
+                </button>
+              </form>
+            </div>
+
+            <table className="event-table banner-list-table">
+              <thead>
+                <tr>
+                  <th>제목</th>
+                  <th>발송 대상</th>
+                  <th>노출 기간</th>
+                  <th>상태</th>
+                </tr>
+              </thead>
+              <tbody>
+                {loading ? (
+                  <tr>
+                    <td colSpan={4}>로딩 중...</td>
+                  </tr>
+                ) : banners.length === 0 ? (
+                  <tr>
+                    <td colSpan={4}>등록된 배너가 없습니다.</td>
+                  </tr>
+                ) : (
+                  banners.map((banner) => (
                     <tr
-                      className={`event-row ${isOpen ? 'open' : ''}`}
+                      className="event-row"
+                      key={banner.id}
                       onClick={() => void handleSelectBanner(banner.id)}
                     >
+                      <td>{banner.bannerTitle}</td>
+                      <td>{targetTypeLabels[banner.contentTargetType]}</td>
+                      <td>{formatDateRange(banner.displayStartAt, banner.displayEndAt)}</td>
                       <td>
-                        <span className="id-chip">
-                          <span className="dot"></span>
-                          {banner.id}
-                        </span>
-                      </td>
-                      <td>
-                        <div className="thumb">
-                          {banner.imageUrl ? (
-                            <img className="thumb-box" src={banner.imageUrl} alt="" />
-                          ) : (
-                            <div className="thumb-box" style={{ background: thumbColor(String(banner.id)) }}>
-                              BANNER
-                            </div>
-                          )}
-                          <div className="thumb-meta">
-                            <div className="thumb-name">{banner.bannerTitle}</div>
-                            <div className="s3path">public/event/{banner.targetId}/banner</div>
-                          </div>
-                        </div>
-                      </td>
-                      <td>
-                        <div className="link-ev">
-                          <span className="id-chip">
-                            <span className="dot"></span>
-                            {banner.targetId}
-                          </span>
-                          <span className="ev-lite">{targetTypeLabels[banner.contentTargetType]}</span>
-                        </div>
-                      </td>
-                      <td className="period">
-                        {formatDateTime(banner.displayStartAt)}
-                        <span className="dash"> → </span>
-                        <br />
-                        {formatDateTime(banner.displayEndAt)}
-                      </td>
-                      <td>
-                        <span className={`badge ${statusClass(banner.status)}`}>
+                        <span className={`event-state-chip ${bannerStatusClass(banner.status)}`}>
                           {statusLabels[banner.status] ?? banner.status}
                         </span>
                       </td>
-                      <td>
-                        <div className="action-buttons" onClick={(clickEvent) => clickEvent.stopPropagation()}>
-                          <button className="btn-approve" onClick={() => void openEditModal(banner.id)} type="button">
-                            수정
-                          </button>
-                          <button
-                            className="btn-reject"
-                            onClick={() => void handleCancelBanner(banner)}
-                            disabled={banner.status === 'ENDED' || banner.status === 'CANCELED'}
-                            type="button"
-                          >
-                            종료
-                          </button>
-                        </div>
-                      </td>
                     </tr>
-                    {isOpen && selectedBanner ? (
-                      <tr className="detail-row">
-                        <td colSpan={6}>
-                          <div className="report-detail-panel">
-                            {detailLoading ? (
-                              <div>상세 정보를 불러오는 중...</div>
-                            ) : (
-                              <>
-                                {selectedBanner.imageUrl ? (
-                                  <img
-                                    src={selectedBanner.imageUrl}
-                                    alt=""
-                                    style={{ maxWidth: 360, borderRadius: 8, border: '1px solid #ebebef' }}
-                                  />
-                                ) : null}
-                                <DetailRow label="배너명" value={selectedBanner.bannerTitle} />
-                                <DetailRow label="대상" value={`${targetTypeLabels[selectedBanner.contentTargetType]} ${selectedBanner.targetId}`} />
-                                <DetailRow label="노출 시작" value={formatDateTime(selectedBanner.displayStartAt)} />
-                                <DetailRow label="노출 종료" value={formatDateTime(selectedBanner.displayEndAt)} />
-                                <DetailRow label="생성일시" value={formatDateTime(selectedBanner.createdAt)} />
-                                <DetailRow label="수정일시" value={formatDateTime(selectedBanner.updatedAt)} />
-                              </>
-                            )}
-                          </div>
-                        </td>
-                      </tr>
-                    ) : null}
-                  </Fragment>
-                )
-              })
-            )}
-          </tbody>
-        </table>
-      </div>
+                  ))
+                )}
+              </tbody>
+            </table>
+          </div>
 
-      {renderPagination()}
+          {renderPagination()}
+        </>
+      )}
 
       {modalMode ? (
         <div className="modal-overlay" onClick={closeModal}>
@@ -490,19 +444,6 @@ export default function BannerPage() {
   )
 }
 
-function DetailRow({ label, value }: { label: string; value: string }) {
-  return (
-    <div className="report-detail-row">
-      <span className="detail-label">{label}</span>
-      <span className="detail-value">{value}</span>
-    </div>
-  )
-}
-
-function formatDateTime(value: string) {
-  return new Date(value).toLocaleString('ko-KR')
-}
-
 function toDatetimeLocalValue(value: string) {
   const date = new Date(value)
   const offset = date.getTimezoneOffset() * 60_000
@@ -513,28 +454,28 @@ function toIsoString(value: string) {
   return new Date(value).toISOString()
 }
 
-function statusClass(status: BannerStatus) {
+function bannerStatusClass(status: BannerStatus) {
   switch (status) {
     case 'ACTIVE':
-      return 'g'
+      return 'event-state-active'
     case 'ENDED':
     case 'CANCELED':
-      return 'a'
+      return 'event-state-canceled'
     case 'SCHEDULED':
     default:
-      return 'n'
+      return 'event-state-scheduled'
   }
 }
 
-function thumbColor(id: string) {
-  const colors = [
-    ['#EC1E79', '#B60E5A'],
-    ['#3457C4', '#22368A'],
-    ['#0E9F6E', '#0A7A54'],
-    ['#C77700', '#95590A'],
-  ]
-  let h = 0
-  for (const c of id) h = (h * 31 + c.charCodeAt(0)) >>> 0
-  const [a, b] = colors[h % colors.length]
-  return `linear-gradient(135deg,${a},${b})`
+function formatDateRange(start: string, end: string) {
+  return `${formatDateDot(start)} ~ ${formatDateDot(end)}`
+}
+
+function formatDateDot(value: string) {
+  const date = new Date(value)
+  const year = date.getFullYear()
+  const month = String(date.getMonth() + 1).padStart(2, '0')
+  const day = String(date.getDate()).padStart(2, '0')
+
+  return `${year}.${month}.${day}`
 }

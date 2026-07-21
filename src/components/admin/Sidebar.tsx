@@ -27,6 +27,17 @@ const menuItems: MenuItem[] = [
   { href: '/user', label: '유저 관리', icon: 'U' },
 ]
 
+const profileImages: Record<string, string> = {
+  황수연: '/profiles/atang.png',
+  김윤성: '/profiles/bini.png',
+  정해인: '/profiles/hae.png',
+  이채연: '/profiles/mung.webp',
+  정은선: '/profiles/silver.webp',
+  이수아: '/profiles/soo.png',
+  이윤지: '/profiles/yoon.webp',
+  허유진: '/profiles/yu.webp',
+}
+
 export function Sidebar() {
   const pathname = usePathname()
   const [profile, setProfile] = useState<{
@@ -63,6 +74,8 @@ export function Sidebar() {
       [label]: !prev[label],
     }))
   }
+
+  const profileImage = profile?.nickName ? profileImages[profile.nickName] : undefined
 
   return (
     <aside className="admin-sidebar">
@@ -140,8 +153,10 @@ export function Sidebar() {
       </div>
 
       <div className="sidebar-profile">
-        <img src="/storix-logo-pink.svg" alt="" aria-hidden="true" />
-        <div>
+        {profileImage ? (
+          <img className="sidebar-profile-image" src={profileImage} alt="" aria-hidden="true" />
+        ) : null}
+        <div className="sidebar-profile-info">
           <strong>{profile?.nickName ?? '관리자'}</strong>
           <span>{profile?.email ?? '프로필 조회 중'}</span>
         </div>

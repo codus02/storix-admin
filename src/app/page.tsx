@@ -1,8 +1,8 @@
 'use client'
 
-import Link from 'next/link'
 import { FormEvent, useState } from 'react'
 import { useRouter } from 'next/navigation'
+import { AxiosError } from 'axios'
 import { adminLogin } from '@/lib/api/auth.api'
 
 export default function Home() {
@@ -30,14 +30,15 @@ export default function Home() {
         // 리프레시 토큰은 쿠키로 자동 저장됨 (withCredentials: true)
 
         // 관리자 페이지로 이동
-        router.push('/event')
+        router.push('/event/in-app')
       } else {
         setError(response.message || '로그인에 실패했습니다.')
       }
-    } catch (err: any) {
+    } catch (err) {
       console.error('로그인 실패:', err)
 
-      const errorMessage = err.response?.data?.message || '로그인에 실패했습니다.\n이메일과 비밀번호를 확인해주세요.'
+      const axiosError = err as AxiosError<{ message?: string }>
+      const errorMessage = axiosError.response?.data?.message || '로그인에 실패했습니다.\n이메일과 비밀번호를 확인해주세요.'
       setError(errorMessage)
     } finally {
       setIsLoading(false)

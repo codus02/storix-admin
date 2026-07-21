@@ -1,6 +1,7 @@
 'use client'
 
 import { FormEvent, useEffect, useState } from 'react'
+import { AxiosError } from 'axios'
 import {
   getReportList,
   getReportDetail,
@@ -58,11 +59,11 @@ export default function ReportPage() {
     const fetchReports = async () => {
       setLoading(true)
       setErrorMessage('')
+      const params: Parameters<typeof getReportList>[0] = {
+        page: currentPage,
+      }
+
       try {
-        const params: Parameters<typeof getReportList>[0] = {
-          page: currentPage,
-          size: 10,
-        }
         if (targetTypeFilter !== '전체') params.targetType = targetTypeFilter
         if (statusFilter !== '전체') params.status = statusFilter
         if (appliedReportedUserKeyword.trim()) {
@@ -80,8 +81,19 @@ export default function ReportPage() {
           setTotalElements(response.result.totalElements)
         }
       } catch (error) {
-        console.error('신고 목록 조회 실패:', error)
-        setErrorMessage('신고 목록을 불러오지 못했습니다.')
+        const axiosError = error as AxiosError<{ message?: string; code?: string }>
+        const serverMessage = axiosError.response?.data?.message
+
+        console.error(
+          `신고 목록 조회 실패: status=${axiosError.response?.status ?? 'unknown'}, message=${serverMessage ?? 'unknown'}, params=${JSON.stringify(params)}`
+        )
+        console.error('신고 목록 조회 실패:', {
+          status: axiosError.response?.status,
+          data: axiosError.response?.data,
+          params,
+          error,
+        })
+        setErrorMessage(serverMessage ? `신고 목록을 불러오지 못했습니다. (${serverMessage})` : '신고 목록을 불러오지 못했습니다.')
       } finally {
         setLoading(false)
       }

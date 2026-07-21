@@ -1,7 +1,7 @@
 import { apiClient } from './axios-instance'
 
 export type NotificationType = 'MARKETING' | 'NOTICE'
-export type TargetAudience = 'ALL'
+export type TargetAudience = 'ALL' | 'NEW_USER'
 export type SendType = 'IMMEDIATE' | 'SCHEDULED'
 export type NotificationStatus = 'SCHEDULED' | 'SENT' | 'FAILED' | 'CANCELED'
 export type NotificationTargetType = 'NONE' | 'APP_EVENT'

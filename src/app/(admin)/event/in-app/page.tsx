@@ -1,6 +1,7 @@
 'use client'
 
 import { FormEvent, Fragment, useEffect, useMemo, useState } from 'react'
+import { AxiosError } from 'axios'
 import {
   cancelAppEvent,
   createAppEvent,
@@ -31,17 +32,36 @@ const emptyForm: FormState = {
   promotionTypes: [],
 }
 
+type ApiErrorBody = {
+  code?: string
+  message?: string
+}
+
 const promotionLabels: Record<PromotionType, string> = {
   PUSH: '푸시',
   POPUP: '팝업',
   BANNER: '배너',
 }
 
-const statusLabels: Record<AppEventStatus, string> = {
-  SCHEDULED: '예약',
-  ACTIVE: '진행중',
-  ENDED: '종료',
-  CANCELED: '강제 종료',
+const eventColumns = [
+  { key: 'id', label: 'appEventID' },
+  { key: 'name', label: '이벤트 명' },
+  { key: 'period', label: '이벤트 기간' },
+  { key: 'children', label: '이벤트 하위 목록' },
+  { key: 'actions', label: '작업' },
+] as const
+
+const statusDesigns: Record<AppEventStatus, { label: string; className: string }> = {
+  SCHEDULED: { label: '예약 대기', className: 'event-state-scheduled' },
+  ACTIVE: { label: '진행 중', className: 'event-state-active' },
+  ENDED: { label: '종료 완료', className: 'event-state-ended' },
+  CANCELED: { label: '강제 종료', className: 'event-state-canceled' },
+}
+
+const promotionDesigns: Record<PromotionType, { label: string; className: string }> = {
+  PUSH: { label: '푸시', className: 'event-type-push' },
+  POPUP: { label: '팝업', className: 'event-type-popup' },
+  BANNER: { label: '배너', className: 'event-type-banner' },
 }
 
 const promotionTypes: PromotionType[] = ['PUSH', 'POPUP', 'BANNER']
@@ -82,8 +102,14 @@ export default function InAppEventPage() {
         setTotalPages(response.result.totalPages)
         setTotalElements(response.result.totalElements)
       }
-    } catch {
-      setErrorMessage('앱 이벤트 목록을 불러오지 못했습니다.')
+    } catch (error) {
+      const errorInfo = getApiErrorInfo(error)
+
+      console.warn(
+        `앱 이벤트 목록 조회 실패: status=${errorInfo.status ?? 'unknown'}, code=${errorInfo.code ?? 'unknown'}, message=${errorInfo.message ?? 'unknown'}, page=${page}`
+      )
+      console.warn('앱 이벤트 목록 조회 응답:', errorInfo.data ?? error)
+      setErrorMessage(errorInfo.message ? `앱 이벤트 목록을 불러오지 못했습니다. (${errorInfo.message})` : '앱 이벤트 목록을 불러오지 못했습니다.')
     } finally {
       setLoading(false)
     }
@@ -106,8 +132,17 @@ export default function InAppEventPage() {
       if (response.isSuccess) {
         setSelectedEvent(response.result)
       }
-    } catch {
-      setErrorMessage('앱 이벤트 상세를 불러오지 못했습니다.')
+    } catch (error) {
+      const errorInfo = getApiErrorInfo(error)
+      console.error('앱 이벤트 상세 조회 실패:', {
+        status: errorInfo.status,
+        code: errorInfo.code,
+        message: errorInfo.message,
+        data: errorInfo.data,
+        appEventId,
+        error,
+      })
+      setErrorMessage(errorInfo.message ? `앱 이벤트 상세를 불러오지 못했습니다. (${errorInfo.message})` : '앱 이벤트 상세를 불러오지 못했습니다.')
     } finally {
       setDetailLoading(false)
     }
@@ -152,8 +187,8 @@ export default function InAppEventPage() {
     const payload: AppEventPayload = {
       name: form.name.trim(),
       description: form.description.trim(),
-      startAt: toIsoString(form.startAt),
-      endAt: toIsoString(form.endAt),
+      startAt: toLocalDateTimeString(form.startAt),
+      endAt: toLocalDateTimeString(form.endAt),
       hasWinner: form.hasWinner,
       promotionTypes: form.promotionTypes,
     }
@@ -176,8 +211,17 @@ export default function InAppEventPage() {
       setModalMode(null)
       setForm(emptyForm)
       await fetchEvents(modalMode === 'create' ? 0 : currentPage)
-    } catch {
-      alert(modalMode === 'edit' ? '앱 이벤트 수정에 실패했습니다.' : '앱 이벤트 생성에 실패했습니다.')
+    } catch (error) {
+      const errorInfo = getApiErrorInfo(error)
+      console.error(modalMode === 'edit' ? '앱 이벤트 수정 실패:' : '앱 이벤트 생성 실패:', {
+        status: errorInfo.status,
+        code: errorInfo.code,
+        message: errorInfo.message,
+        data: errorInfo.data,
+        payload,
+        error,
+      })
+      alert(errorInfo.message || (modalMode === 'edit' ? '앱 이벤트 수정에 실패했습니다.' : '앱 이벤트 생성에 실패했습니다.'))
     } finally {
       setSaving(false)
     }
@@ -193,8 +237,17 @@ export default function InAppEventPage() {
         setSelectedEvent(response.result)
         await fetchEvents(currentPage)
       }
-    } catch {
-      alert('앱 이벤트 강제 종료에 실패했습니다.')
+    } catch (error) {
+      const errorInfo = getApiErrorInfo(error)
+      console.error('앱 이벤트 강제 종료 실패:', {
+        status: errorInfo.status,
+        code: errorInfo.code,
+        message: errorInfo.message,
+        data: errorInfo.data,
+        appEventId: event.id,
+        error,
+      })
+      alert(errorInfo.message || '앱 이벤트 강제 종료에 실패했습니다.')
     }
   }
 
@@ -252,10 +305,8 @@ export default function InAppEventPage() {
     <div className="event-page-container">
       <div className="page-head">
         <div>
-          <h1>인앱 이벤트 관리</h1>
-          <p className="page-sub">
-            앱 이벤트를 생성하고 appEventId 기준으로 푸시·팝업·배너 홍보 수단을 연결합니다.
-          </p>
+          <h1>이벤트 관리</h1>
+          <p className="page-sub">인앱 이벤트 관리</p>
         </div>
         <button className="btn-primary" onClick={openCreateModal} type="button">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round">
@@ -283,28 +334,26 @@ export default function InAppEventPage() {
 
       {errorMessage ? <p className="login-message">{errorMessage}</p> : null}
 
-      <div className="event-table-panel">
-        <table className="event-table">
+      <div className="event-table-panel in-app-event-panel">
+        <div className="table-title-row">
+          <h2>인앱 이벤트 목록</h2>
+        </div>
+        <table className="event-table in-app-event-table">
           <thead>
             <tr>
-              <th>appEventId</th>
-              <th>이벤트명</th>
-              <th>기간</th>
-              <th>홍보 수단</th>
-              <th>당첨자</th>
-              <th>상태</th>
-              <th>작업</th>
-              <th></th>
+              {eventColumns.map((column) => (
+                <th key={column.key}>{column.label}</th>
+              ))}
             </tr>
           </thead>
           <tbody>
             {loading ? (
               <tr>
-                <td colSpan={8}>로딩 중...</td>
+                <td colSpan={eventColumns.length}>로딩 중...</td>
               </tr>
             ) : filteredEvents.length === 0 ? (
               <tr>
-                <td colSpan={8}>등록된 앱 이벤트가 없습니다.</td>
+                <td colSpan={eventColumns.length}>등록된 앱 이벤트가 없습니다.</td>
               </tr>
             ) : (
               filteredEvents.map((event) => {
@@ -319,68 +368,55 @@ export default function InAppEventPage() {
                     >
                       <td>
                         <span className="id-chip">
-                          <span className="dot"></span>
                           {event.id}
                         </span>
                       </td>
                       <td>
-                        <div className="ev-name">{event.name}</div>
-                        <div className="ev-desc">{event.description}</div>
+                        <div className="event-name-cell">
+                          <span className="ev-name">{event.name}</span>
+                          <span className={`event-state-chip ${statusDesigns[event.status].className}`}>
+                            {statusDesigns[event.status].label}
+                          </span>
+                        </div>
                       </td>
                       <td className="period">
-                        {formatDateTime(event.startAt)}
-                        <span className="dash"> → </span>
-                        <br />
-                        {formatDateTime(event.endAt)}
+                        {formatCompactDateTime(event.startAt)}
+                        <span className="dash"> - </span>
+                        {formatCompactDateTime(event.endAt)}
                       </td>
                       <td>
-                        <div className="promo-tags">
-                          {promotionTypes.map((type) => (
-                            <span
-                              key={type}
-                              className={`promo-tag ${event.promotionTypes.includes(type) ? 'on' : ''}`}
-                            >
-                              {promotionLabels[type]}
-                            </span>
-                          ))}
+                        <div className="event-type-tags">
+                          {event.promotionTypes.length > 0 ? (
+                            event.promotionTypes.map((type) => (
+                              <span key={type} className={`event-type-chip ${promotionDesigns[type].className}`}>
+                                {promotionDesigns[type].label}
+                              </span>
+                            ))
+                          ) : (
+                            <span className="event-type-chip event-type-empty">미연결</span>
+                          )}
+                          {event.hasWinner ? <span className="event-type-chip event-type-winner">당첨자</span> : null}
                         </div>
                       </td>
                       <td>
-                        {event.hasWinner ? (
-                          <span className="badge a">당첨자 O</span>
-                        ) : (
-                          <span className="badge n">없음</span>
-                        )}
-                      </td>
-                      <td>
-                        <span className={`badge ${statusClass(event.status)}`}>
-                          {statusLabels[event.status] ?? event.status}
-                        </span>
-                      </td>
-                      <td>
-                        <div className="action-buttons" onClick={(clickEvent) => clickEvent.stopPropagation()}>
-                          <button className="btn-approve" onClick={() => openEditModal(event)} type="button">
+                        <div className="in-app-row-actions" onClick={(clickEvent) => clickEvent.stopPropagation()}>
+                          <button className="table-action-button" onClick={() => openEditModal(event)} type="button">
                             수정
                           </button>
                           <button
-                            className="btn-reject"
+                            className="table-action-button"
                             onClick={() => void handleCancelEvent(event)}
                             disabled={event.status === 'ENDED' || event.status === 'CANCELED'}
                             type="button"
                           >
-                            종료
+                            취소
                           </button>
                         </div>
-                      </td>
-                      <td className="cell-caret">
-                        <svg className={`caret ${isOpen ? 'open' : ''}`} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round">
-                          <path d="m9 18 6-6-6-6" />
-                        </svg>
                       </td>
                     </tr>
                     {isOpen && selectedEvent ? (
                       <tr className="detail-row" key={`${event.id}-detail`}>
-                        <td colSpan={8}>
+                        <td colSpan={eventColumns.length}>
                           <div className="report-detail-panel">
                             {detailLoading ? (
                               <div>상세 정보를 불러오는 중...</div>
@@ -500,7 +536,11 @@ function DetailRow({ label, value }: { label: string; value: string }) {
 }
 
 function formatDateTime(value: string) {
-  return new Date(value).toLocaleString('ko-KR')
+  return formatDateMinute(value)
+}
+
+function formatCompactDateTime(value: string) {
+  return formatDateMinute(value)
 }
 
 function toDatetimeLocalValue(value: string) {
@@ -509,19 +549,28 @@ function toDatetimeLocalValue(value: string) {
   return new Date(date.getTime() - offset).toISOString().slice(0, 16)
 }
 
-function toIsoString(value: string) {
-  return new Date(value).toISOString()
+function toLocalDateTimeString(value: string) {
+  return value.replace('T', ' ')
 }
 
-function statusClass(status: AppEventStatus) {
-  switch (status) {
-    case 'ACTIVE':
-      return 'g'
-    case 'ENDED':
-    case 'CANCELED':
-      return 'a'
-    case 'SCHEDULED':
-    default:
-      return 'n'
+function formatDateMinute(value: string) {
+  const date = new Date(value)
+  const year = date.getFullYear()
+  const month = String(date.getMonth() + 1).padStart(2, '0')
+  const day = String(date.getDate()).padStart(2, '0')
+  const hour = String(date.getHours()).padStart(2, '0')
+  const minute = String(date.getMinutes()).padStart(2, '0')
+
+  return `${year}-${month}-${day} ${hour}:${minute}`
+}
+
+function getApiErrorInfo(error: unknown) {
+  const axiosError = error as AxiosError<ApiErrorBody>
+
+  return {
+    status: axiosError.response?.status,
+    code: axiosError.response?.data?.code,
+    message: axiosError.response?.data?.message,
+    data: axiosError.response?.data,
   }
 }

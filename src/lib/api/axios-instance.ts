@@ -3,9 +3,6 @@ import axios from 'axios'
 export const apiClient = axios.create({
   baseURL: '',
   timeout: 10_000,
-  headers: {
-    'Content-Type': 'application/json',
-  },
   withCredentials: true, // 쿠키 전송을 위해 필요
 })
 

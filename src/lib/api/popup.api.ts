@@ -21,11 +21,11 @@ export type AdminPopup = {
 }
 
 export type AdminPopupPayload = {
-  targetId: number
-  contentTargetType: PopupContentTargetType
-  exposurePolicy: PopupExposurePolicy
+  targetId?: number
+  contentTargetType?: PopupContentTargetType
+  exposurePolicy?: PopupExposurePolicy
   popupTitle: string
-  content: string
+  content?: string
   ctaText: string
   displayStartAt: string
   displayEndAt: string

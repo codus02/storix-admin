@@ -1,6 +1,10 @@
 import type { NextConfig } from 'next'
 
-const apiOrigin = process.env.NEXT_PUBLIC_API_URL || 'https://api.storix.kr'
+const defaultApiOrigin = process.env.NODE_ENV === 'development'
+  ? 'https://dev.storix.kr'
+  : 'https://api.storix.kr'
+
+const apiOrigin = process.env.NEXT_PUBLIC_API_URL || defaultApiOrigin
 
 const nextConfig: NextConfig = {
   turbopack: {

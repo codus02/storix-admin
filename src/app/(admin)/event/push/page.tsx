@@ -47,6 +47,11 @@ const notificationTypeLabels: Record<NotificationType, string> = {
   NOTICE: '공지',
 }
 
+const targetAudienceLabels: Record<TargetAudience, string> = {
+  ALL: '전체 유저',
+  NEW_USER: '신규 유저',
+}
+
 const sendTypeLabels: Record<SendType, string> = {
   IMMEDIATE: '즉시 발송',
   SCHEDULED: '예약 발송',
@@ -173,11 +178,6 @@ export default function PushNotificationPage() {
 
     if (form.sendType === 'SCHEDULED' && !form.scheduledAt) {
       alert('예약 발송 일시를 입력해주세요.')
-      return
-    }
-
-    if (form.targetType === 'APP_EVENT' && !form.eventTargetId.trim()) {
-      alert('앱 이벤트 ID를 입력해주세요.')
       return
     }
 
@@ -370,7 +370,7 @@ export default function PushNotificationPage() {
                         <div className="ev-name">{notification.title}</div>
                       </td>
                       <td>{notificationTypeLabels[notification.notificationType] ?? notification.notificationType}</td>
-                      <td>{notification.targetAudience}</td>
+                      <td>{targetAudienceLabels[notification.targetAudience] ?? notification.targetAudience}</td>
                       <td>{sendTypeLabels[notification.sendType] ?? notification.sendType}</td>
                       <td className="period">
                         {notification.scheduledAt ? formatDateTime(notification.scheduledAt) : '즉시'}
@@ -382,30 +382,24 @@ export default function PushNotificationPage() {
                       </td>
                       <td>
                         <div className="action-buttons" onClick={(clickEvent) => clickEvent.stopPropagation()}>
-                          <button
-                            className="btn-approve"
-                            onClick={() => void openEditModal(notification.id)}
-                            disabled={notification.status !== 'SCHEDULED'}
-                            type="button"
-                          >
-                            수정
-                          </button>
-                          <button
-                            className="btn-reject"
-                            onClick={() => void handleCancel(notification)}
-                            disabled={notification.status !== 'SCHEDULED'}
-                            type="button"
-                          >
-                            예약 취소
-                          </button>
-                          <button
-                            className="btn-approve"
-                            onClick={() => void handleBroadcast(notification)}
-                            disabled={!notification.rebroadcastable}
-                            type="button"
-                          >
-                            재발송
-                          </button>
+                          {notification.status === 'SCHEDULED' ? (
+                            <button
+                              className="btn-reject"
+                              onClick={() => void handleCancel(notification)}
+                              type="button"
+                            >
+                              취소
+                            </button>
+                          ) : null}
+                          {notification.status === 'FAILED' ? (
+                            <button
+                              className="btn-approve"
+                              onClick={() => void handleBroadcast(notification)}
+                              type="button"
+                            >
+                              재발송
+                            </button>
+                          ) : null}
                         </div>
                       </td>
                     </tr>
@@ -420,7 +414,7 @@ export default function PushNotificationPage() {
                                 <DetailRow label="제목" value={selectedNotification.title} />
                                 <DetailRow label="내용" value={selectedNotification.content} />
                                 <DetailRow label="알림 유형" value={notificationTypeLabels[selectedNotification.notificationType] ?? selectedNotification.notificationType} />
-                                <DetailRow label="발송 대상" value={selectedNotification.targetAudience} />
+                                <DetailRow label="발송 대상" value={targetAudienceLabels[selectedNotification.targetAudience] ?? selectedNotification.targetAudience} />
                                 <DetailRow label="발송 방식" value={sendTypeLabels[selectedNotification.sendType] ?? selectedNotification.sendType} />
                                 <DetailRow label="예약 일시" value={selectedNotification.scheduledAt ? formatDateTime(selectedNotification.scheduledAt) : '즉시'} />
                                 <DetailRow label="타겟 유형" value={targetTypeLabels[selectedNotification.targetType] ?? selectedNotification.targetType} />
@@ -456,56 +450,63 @@ export default function PushNotificationPage() {
               <label className="field">
                 <span>알림 제목</span>
                 <input
+                  placeholder="푸시 알림 제목 입력"
                   value={form.title}
                   onChange={(event) => setForm((current) => ({ ...current, title: event.target.value }))}
                 />
               </label>
               <label className="field">
                 <span>알림 내용</span>
-                <input
+                <textarea
+                  placeholder="푸시 알림 세부 설명"
                   value={form.content}
                   onChange={(event) => setForm((current) => ({ ...current, content: event.target.value }))}
                 />
               </label>
               <label className="field">
-                <span>알림 유형</span>
-                <select
-                  value={form.notificationType}
-                  onChange={(event) =>
-                    setForm((current) => ({ ...current, notificationType: event.target.value as NotificationType }))
-                  }
-                >
-                  <option value="MARKETING">마케팅</option>
-                  <option value="NOTICE">공지</option>
-                </select>
+                <span>링크</span>
+                <input
+                  value={form.targetLink}
+                  onChange={(event) => setForm((current) => ({ ...current, targetLink: event.target.value }))}
+                  placeholder="랜딩 하이퍼링크 입력"
+                />
               </label>
-              <label className="field">
+              <div className="field choice-field">
                 <span>발송 대상</span>
-                <select
-                  value={form.targetAudience}
-                  onChange={(event) =>
-                    setForm((current) => ({ ...current, targetAudience: event.target.value as TargetAudience }))
-                  }
-                >
-                  <option value="ALL">전체</option>
-                </select>
-              </label>
-              <label className="field">
+                <div className="choice-group">
+                  {(Object.keys(targetAudienceLabels) as TargetAudience[]).map((targetAudience) => (
+                    <button
+                      key={targetAudience}
+                      className={`choice-button ${form.targetAudience === targetAudience ? 'selected' : ''}`}
+                      onClick={() => setForm((current) => ({ ...current, targetAudience }))}
+                      type="button"
+                    >
+                      {targetAudienceLabels[targetAudience]}
+                    </button>
+                  ))}
+                </div>
+              </div>
+              <div className="field choice-field">
                 <span>발송 방식</span>
-                <select
-                  value={form.sendType}
-                  onChange={(event) =>
-                    setForm((current) => ({
-                      ...current,
-                      sendType: event.target.value as SendType,
-                      scheduledAt: event.target.value === 'IMMEDIATE' ? '' : current.scheduledAt,
-                    }))
-                  }
-                >
-                  <option value="IMMEDIATE">즉시 발송</option>
-                  <option value="SCHEDULED">예약 발송</option>
-                </select>
-              </label>
+                <div className="choice-group">
+                  {(Object.keys(sendTypeLabels) as SendType[]).map((sendType) => (
+                    <button
+                      key={sendType}
+                      className={`choice-button ${form.sendType === sendType ? 'selected' : ''}`}
+                      onClick={() =>
+                        setForm((current) => ({
+                          ...current,
+                          sendType,
+                          scheduledAt: sendType === 'IMMEDIATE' ? '' : current.scheduledAt,
+                        }))
+                      }
+                      type="button"
+                    >
+                      {sendTypeLabels[sendType]}
+                    </button>
+                  ))}
+                </div>
+              </div>
               {form.sendType === 'SCHEDULED' ? (
                 <label className="field">
                   <span>예약 발송 일시</span>
@@ -516,40 +517,6 @@ export default function PushNotificationPage() {
                   />
                 </label>
               ) : null}
-              <label className="field">
-                <span>타겟 유형</span>
-                <select
-                  value={form.targetType}
-                  onChange={(event) =>
-                    setForm((current) => ({
-                      ...current,
-                      targetType: event.target.value as NotificationTargetType,
-                      eventTargetId: event.target.value === 'NONE' ? '' : current.eventTargetId,
-                    }))
-                  }
-                >
-                  <option value="NONE">없음</option>
-                  <option value="APP_EVENT">앱 이벤트</option>
-                </select>
-              </label>
-              {form.targetType === 'APP_EVENT' ? (
-                <label className="field">
-                  <span>앱 이벤트 ID</span>
-                  <input
-                    type="number"
-                    value={form.eventTargetId}
-                    onChange={(event) => setForm((current) => ({ ...current, eventTargetId: event.target.value }))}
-                  />
-                </label>
-              ) : null}
-              <label className="field">
-                <span>타겟 링크</span>
-                <input
-                  value={form.targetLink}
-                  onChange={(event) => setForm((current) => ({ ...current, targetLink: event.target.value }))}
-                  placeholder="https://..."
-                />
-              </label>
             </div>
 
             <div className="modal-footer">
