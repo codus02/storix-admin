@@ -278,6 +278,7 @@ select {
   color: #000000;
   font-size: 17px;
   font-weight: 800;
+  text-decoration: none;
 }
 
 .sidebar-title img {
@@ -433,6 +434,30 @@ select {
   height: 100vh;
   overflow-y: auto;
   overflow-x: hidden;
+}
+
+.admin-home-page {
+  position: relative;
+  min-height: calc(100vh - 56px);
+  background: #ffffff;
+  overflow: hidden;
+}
+
+.admin-home-bouncer-stage {
+  position: absolute;
+  inset: 0;
+}
+
+.admin-home-bouncer-stage img {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: auto;
+  height: 100px;
+  object-fit: contain;
+  will-change: transform;
+  user-select: none;
+  pointer-events: none;
 }
 
 .event-page h1,
@@ -1841,6 +1866,16 @@ select {
 .sanction-option.selected {
   border-color: #ec1e79;
   background: #fff0f7;
+}
+
+.action-checkbox.disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.action-checkbox.disabled input,
+.action-checkbox.disabled .checkbox-content {
+  cursor: not-allowed;
 }
 
 .btn-modal-confirm.black {

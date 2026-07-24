@@ -30,7 +30,7 @@ export default function Home() {
         // 리프레시 토큰은 쿠키로 자동 저장됨 (withCredentials: true)
 
         // 관리자 페이지로 이동
-        router.push('/event/in-app')
+        router.push('/home')
       } else {
         setError(response.message || '로그인에 실패했습니다.')
       }

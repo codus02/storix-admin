@@ -33,6 +33,14 @@ const actionLabels: Record<ProcessAction, string> = {
   ACCOUNT_DELETED: '계정 삭제',
 }
 
+type ApiErrorBody = {
+  code?: string
+  message?: string
+  fieldErrors?: unknown
+}
+
+const contentDeletableTargetTypes: TargetType[] = ['FEED', 'FEED_REPLY', 'REVIEW', 'CHAT']
+
 export default function ReportPage() {
   const [selectedReportId, setSelectedReportId] = useState<number | null>(null)
   const [selectedReportDetail, setSelectedReportDetail] = useState<ReportDetail | null>(null)
@@ -189,12 +197,23 @@ export default function ReportPage() {
       return
     }
 
+    if (
+      selectedActions.includes('CONTENT_DELETED') &&
+      selectedReportDetail &&
+      !contentDeletableTargetTypes.includes(selectedReportDetail.targetType)
+    ) {
+      alert(`${targetTypeLabels[selectedReportDetail.targetType]} 신고는 콘텐츠 삭제 처리를 할 수 없습니다.`)
+      return
+    }
+
+    const payload = {
+      status: 'COMPLETED' as const,
+      processActions: selectedActions,
+      processMemo: processComment.trim() || undefined,
+    }
+
     try {
-      await processReport(selectedReportId, {
-        status: 'COMPLETED',
-        processActions: selectedActions,
-        processMemo: processComment || undefined,
-      })
+      await processReport(selectedReportId, payload)
 
       setShowProcessModal(false)
       // 목록 새로고침
@@ -202,8 +221,21 @@ export default function ReportPage() {
       setSelectedReportDetail(null)
       setCurrentPage(0)
     } catch (error) {
-      console.error('신고 처리 실패:', error)
-      alert('신고 처리에 실패했습니다.')
+      const axiosError = error as AxiosError<ApiErrorBody>
+      const serverMessage = axiosError.response?.data?.message
+      console.error('신고 처리 실패:', {
+        status: axiosError.response?.status,
+        code: axiosError.response?.data?.code,
+        message: serverMessage ?? (error instanceof Error ? error.message : undefined),
+        fieldErrors: axiosError.response?.data?.fieldErrors,
+        data: axiosError.response?.data,
+        reportCaseId: selectedReportId,
+        targetType: selectedReportDetail?.targetType,
+        processActions: selectedActions.join(', '),
+        payload,
+      })
+      console.table(axiosError.response?.data?.fieldErrors ?? [])
+      alert(serverMessage || '신고 처리에 실패했습니다.')
     }
   }
 
@@ -526,9 +558,20 @@ export default function ReportPage() {
 
             <div className="modal-body">
               <div className="action-checkboxes">
-                {(['CONTENT_DELETED', 'ACCOUNT_SUSPENDED', 'ACCOUNT_DELETED'] as ProcessAction[]).map((action) => (
-                  <label key={action} className={`action-checkbox ${selectedActions.includes(action) ? 'checked' : ''}`}>
-                    <input type="checkbox" checked={selectedActions.includes(action)} onChange={() => toggleAction(action)} />
+                {(['CONTENT_DELETED', 'ACCOUNT_SUSPENDED', 'ACCOUNT_DELETED'] as ProcessAction[]).map((action) => {
+                  const isContentDeleteDisabled =
+                    action === 'CONTENT_DELETED' &&
+                    selectedReportDetail != null &&
+                    !contentDeletableTargetTypes.includes(selectedReportDetail.targetType)
+
+                  return (
+                  <label key={action} className={`action-checkbox ${selectedActions.includes(action) ? 'checked' : ''} ${isContentDeleteDisabled ? 'disabled' : ''}`}>
+                    <input
+                      type="checkbox"
+                      checked={selectedActions.includes(action)}
+                      disabled={isContentDeleteDisabled}
+                      onChange={() => toggleAction(action)}
+                    />
                     <div className="checkbox-content">
                       <div className="checkbox-title">{actionLabels[action]}</div>
                       <div className="checkbox-desc">
@@ -538,7 +581,8 @@ export default function ReportPage() {
                       </div>
                     </div>
                   </label>
-                ))}
+                  )
+                })}
               </div>
 
               <div className="modal-comment-section">

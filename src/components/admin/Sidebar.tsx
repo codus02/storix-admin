@@ -80,10 +80,10 @@ export function Sidebar() {
   return (
     <aside className="admin-sidebar">
       <div>
-        <div className="sidebar-title">
+        <Link className="sidebar-title" href="/home">
           <img src="/storix-logo-pink.svg" alt="" aria-hidden="true" />
-          <span>전체 메뉴</span>
-        </div>
+          <span>홈</span>
+        </Link>
 
         <nav className="sidebar-nav" aria-label="관리자 메뉴">
           {menuItems.map((item) => {
